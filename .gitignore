@@ -10,9 +10,22 @@ conf/local/**
 conf/**/*credentials*
 
 # ignore ALL data folders (keep only .gitkeep)
-data/**
-!data/**/
-!data/**/.gitkeep
+# ignore raw and intermediate data
+data/01_raw/**
+data/02_intermediate/**
+data/03_primary/**
+data/04_feature/**
+data/05_model_input/**
+
+# allow models
+!data/06_models/**
+# but still ignore huge regression intermediate files if needed
+# data/06_models/mt_regression/**
+
+# allow model output reporting (safe)
+!data/07_model_output/**
+!data/08_reporting/**
+
 
 # ignore kedro-viz metadata
 .viz/
