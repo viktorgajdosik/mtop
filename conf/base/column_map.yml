@@ -1,0 +1,49 @@
+# Original Excel column -> normalized snake_case name
+"Patient ID": patient_id
+"Date of stroke onset": onset_date
+"Time of stroke onset": onset_time
+"Age": age
+"Sex": sex
+"ASPECTS": aspects
+"Occlusion site": occlusion_site
+"Hemisphere": hemisphere
+"Intervention procedure": procedure
+"Stent combo": stent_combo
+"Extraction system": extraction_system
+"Thrombolytics": thrombolytics
+"Procedure duration": procedure_duration
+"TICI": tici
+"IVT": ivt_given
+"IVT in different hospital": ivt_different_hospital
+"Transfer from different hospital": transfer_from_other_hospital
+"IAT": iat_given
+"Stroke onset to IVT (min)": onset_to_ivt_min
+"Stroke onset to puncture (min)": onset_to_puncture_min
+"Stroke onset to recanalization (min)": onset_to_recan_min
+"Admission NIHSS": nihss_admission
+"NIHSS 24h": nihss_24h
+"NIHSS 7d": nihss_7d
+"SICH": sich
+"non-SICH": non_sich
+"mRS before": mrs_before
+"90-day mRS": mrs90
+"Anti-thrombotics before": antithrombotics_before
+"Statins before": statins_before
+"Hypertension": hypertension
+"DM": diabetes
+"Hyperlipidemia": hyperlipidemia
+"Smoking": smoking
+"Alcohol abusus": alcohol_abuse
+"BMI": bmi
+"Arrhythmia": arrhythmia
+"TIA before": tia_before
+"CMP before": cmp_before
+"Heart condition": heart_condition
+"Systolic BP": systolic_bp
+"Diastolic BP": diastolic_bp
+"Glycemia": glycemia
+"Cholesterol": cholesterol
+"Etiology": etiology
+"Cerebral edema": cerebral_edema
+"Decompression surgery": decompression_surgery
+"Anesthesia": anesthesia

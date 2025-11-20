@@ -1,0 +1,77 @@
+##############################
+# KEDRO PROJECT
+##############################
+
+# ignore all local configuration
+conf/local/**
+!conf/local/.gitkeep
+
+# ignore potentially sensitive credentials files
+conf/**/*credentials*
+
+# ignore ALL data folders (keep only .gitkeep)
+data/**
+!data/**/
+!data/**/.gitkeep
+
+# ignore kedro-viz metadata
+.viz/
+
+# ignore file based logs
+*.log
+
+##############################
+# Streamlit / Secrets
+##############################
+.streamlit/secrets.toml
+
+##############################
+# Python / Common ignores
+##############################
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+env/
+venv/
+ENV/
+
+# Distribution / packaging
+build/
+dist/
+.eggs/
+*.egg-info/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# IDE / OS
+.vscode/
+.idea/
+*.iml
+.DS_Store
+
+# PyInstaller
+*.spec
+
+# Unit test / coverage
+htmlcov/
+.tox/
+.coverage
+.cache
+
+# mlflow
+mlruns/
+
+# Sphinx
+docs/_build/
+
+# Notebook exports with potential patient-level data
+notebooks/data/**
+!notebooks/data/**/
+!notebooks/**/.gitkeep
+

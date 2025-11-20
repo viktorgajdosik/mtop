@@ -1,0 +1,281 @@
+# Raw
+mt_patients_master:
+  type: kedro_datasets.pandas.ExcelDataset
+  filepath: data/01_raw/mt_patients_master.xlsx
+  load_args:
+    engine: openpyxl
+
+# Config maps
+column_map:
+  type: kedro_datasets.yaml.YAMLDataset
+  filepath: conf/base/column_map.yml
+value_maps:
+  type: kedro_datasets.yaml.YAMLDataset
+  filepath: conf/base/value_maps.yml
+
+# After cleaning, before exclusion
+mt_patients_clean:
+  type: kedro_datasets.pandas.ParquetDataset
+  filepath: data/02_intermediate/mt_patients_clean.parquet
+
+cleaning_log:
+  type: kedro_datasets.json.JSONDataset
+  filepath: data/08_reporting/data_cleaning/cleaning_log.json
+  save_args:
+    indent: 2
+    ensure_ascii: false
+
+# After hard exclusions (drop invalid)
+mt_patients_valid:
+  type: kedro_datasets.pandas.ParquetDataset
+  filepath: data/03_primary/mt_patients_valid.parquet
+
+exclusion_log:
+  type: kedro_datasets.json.JSONDataset
+  filepath: data/08_reporting/data_cleaning/exclusion_log.json
+  save_args:
+    indent: 2
+    ensure_ascii: false
+
+# After validate_and_fix (types, flags)
+mt_patients_validated:
+  type: kedro_datasets.pandas.ParquetDataset
+  filepath: data/03_primary/mt_patients_validated.parquet
+
+data_quality_violations:
+  type: kedro_datasets.json.JSONDataset
+  filepath: data/08_reporting/data_cleaning/data_quality_violations.json
+  save_args:
+    indent: 2
+    ensure_ascii: false
+
+# EDA audit on VALIDATED data (post-exclusion)
+eda_audit_report:
+  type: kedro_datasets.json.JSONDataset
+  filepath: data/08_reporting/eda_audit/eda_audit_report.json
+  save_args:
+    indent: 2
+    ensure_ascii: false
+
+# Plots
+eda_topn_plots:
+  type: kedro_datasets.matplotlib.MatplotlibWriter
+  filepath: data/08_reporting/eda_audit/figs
+  save_args:
+    dpi: 150
+    bbox_inches: tight
+    format: png
+
+# Final merged profile (EDA + DQ)
+data_profile:
+  type: kedro_datasets.json.JSONDataset
+  filepath: data/08_reporting/eda_audit/data_profile.json
+  save_args:
+    indent: 2
+    ensure_ascii: false
+
+# === After validate_and_fix: temporal split annotation ===
+mt_patients_split:
+  type: pandas.ParquetDataset
+  filepath: data/03_primary/mt_patients_split.parquet
+
+# === Baseline characteristics outputs ===
+baseline_table1:
+  type: pandas.CSVDataset
+  filepath: data/08_reporting/baseline_characteristics/baseline_table1.csv
+
+baseline_smd:
+  type: pandas.CSVDataset
+  filepath: data/08_reporting/baseline_characteristics/baseline_smd.csv
+
+# --- lightgbm modeling ready ---
+
+mt_lightgbm_ready:
+  type: kedro_datasets.pandas.ParquetDataset
+  filepath: data/05_model_input/mt_lightgbm_ready.parquet
+
+# --- mRS90 modeling artifacts ---
+
+mrs90_X_train:
+  type: kedro_datasets.pandas.ParquetDataset
+  filepath: data/06_models/modeling_mrs90/mrs90_X_train.parquet
+
+mrs90_y_train:
+  type: kedro_datasets.pandas.ParquetDataset
+  filepath: data/06_models/modeling_mrs90/mrs90_y_train.parquet
+
+mrs90_X_test:
+  type: kedro_datasets.pandas.ParquetDataset
+  filepath: data/06_models/modeling_mrs90/mrs90_X_test.parquet
+
+mrs90_y_test:
+  type: kedro_datasets.pandas.ParquetDataset
+  filepath: data/06_models/modeling_mrs90/mrs90_y_test.parquet
+
+mrs90_train_ids:
+  type: kedro_datasets.pandas.ParquetDataset
+  filepath: data/06_models/modeling_mrs90/mrs90_train_ids.parquet
+
+mrs90_test_ids:
+  type: kedro_datasets.pandas.ParquetDataset
+  filepath: data/06_models/modeling_mrs90/mrs90_test_ids.parquet
+
+mrs90_feature_list:
+  type: kedro_datasets.json.JSONDataset
+  filepath: data/06_models/modeling_mrs90/mrs90_feature_list.json
+  save_args:
+    indent: 2
+    ensure_ascii: false
+
+mrs90_lgbm_model:
+  type: kedro_datasets.pickle.PickleDataset
+  filepath: data/06_models/modeling_mrs90/mrs90_lgbm_model.pkl
+
+
+mrs90_train_metrics:
+  type: kedro_datasets.json.JSONDataset
+  filepath: data/08_reporting/modeling_mrs90/evaluate/mrs90_train_metrics.json
+  save_args:
+    indent: 2
+    ensure_ascii: false
+
+mrs90_test_metrics:
+  type: kedro_datasets.json.JSONDataset
+  filepath: data/08_reporting/modeling_mrs90/evaluate/mrs90_test_metrics.json
+  save_args:
+    indent: 2
+    ensure_ascii: false
+
+mrs90_test_predictions:
+  type: kedro_datasets.pandas.ParquetDataset
+  filepath: data/08_reporting/modeling_mrs90/evaluate/mrs90_test_predictions.parquet
+
+mrs90_feature_importance:
+  type: kedro_datasets.pandas.ParquetDataset
+  filepath: data/08_reporting/modeling_mrs90/evaluate/mrs90_feature_importance.parquet
+
+mrs90_shap_train_values:
+  type: kedro_datasets.pickle.PickleDataset
+  filepath: data/08_reporting/modeling_mrs90/shap/mrs90_shap_train_values.pkl
+
+mrs90_shap_test_values:
+  type: kedro_datasets.pickle.PickleDataset
+  filepath: data/08_reporting/modeling_mrs90/shap/mrs90_shap_test_values.pkl
+
+# Expected value (base value)
+mrs90_shap_expected_value:
+  type: kedro_datasets.json.JSONDataset
+  filepath: data/08_reporting/modeling_mrs90/shap/mrs90_shap_expected_value.json
+  save_args:
+    indent: 2
+    ensure_ascii: false
+
+# Global SHAP summaries
+mrs90_shap_summary_train:
+  type: kedro_datasets.pandas.ParquetDataset
+  filepath: data/08_reporting/modeling_mrs90/shap/mrs90_shap_summary_train.parquet
+
+mrs90_shap_summary_test:
+  type: kedro_datasets.pandas.ParquetDataset
+  filepath: data/08_reporting/modeling_mrs90/shap/mrs90_shap_summary_test.parquet
+
+# NEW: age-stratified SHAP summary (long format)
+mrs90_shap_summary_test_by_age:
+  type: kedro_datasets.pandas.ParquetDataset
+  filepath: data/08_reporting/modeling_mrs90/shap/mrs90_shap_summary_test_by_age.parquet
+
+# Global SHAP plots
+mrs90_shap_barplot:
+  type: kedro_datasets.matplotlib.MatplotlibWriter
+  filepath: data/08_reporting/modeling_mrs90/shap/mrs90_shap_barplot.png
+
+mrs90_shap_beeswarm:
+  type: kedro_datasets.matplotlib.MatplotlibWriter
+  filepath: data/08_reporting/modeling_mrs90/shap/mrs90_shap_beeswarm.png
+
+mrs90_shap_dependence:
+  type: kedro_datasets.matplotlib.MatplotlibWriter
+  filepath: data/08_reporting/modeling_mrs90/shap/mrs90_shap_dependence_top_feature.png
+
+# Age-stratified SHAP plots (<T vs ≥T) – 4 PNGs
+mrs90_shap_age_lt50_ge50:
+  type: kedro_datasets.matplotlib.MatplotlibWriter
+  filepath: data/08_reporting/modeling_mrs90/shap/mrs90_shap_age_lt50_ge50.png
+
+mrs90_shap_age_lt75_ge75:
+  type: kedro_datasets.matplotlib.MatplotlibWriter
+  filepath: data/08_reporting/modeling_mrs90/shap/mrs90_shap_age_lt75_ge75.png
+
+mrs90_shap_age_lt80_ge80:
+  type: kedro_datasets.matplotlib.MatplotlibWriter
+  filepath: data/08_reporting/modeling_mrs90/shap/mrs90_shap_age_lt80_ge80.png
+
+mrs90_shap_age_lt85_ge85:
+  type: kedro_datasets.matplotlib.MatplotlibWriter
+  filepath: data/08_reporting/modeling_mrs90/shap/mrs90_shap_age_lt85_ge85.png
+
+# Logistic regression imputation
+mt_patients_regression_ready:
+  type: kedro_datasets.pandas.ParquetDataset
+  filepath: data/05_model_input/mt_patients_regression_ready.parquet
+
+regression_imputation_log:
+  type: kedro_datasets.json.JSONDataset
+  filepath: data/08_reporting/data_cleaning/imputation/regression_imputation_log.json
+  save_args:
+    indent: 2
+    ensure_ascii: false
+
+# Logistic regression outputs (tables)
+
+mt_coef_pre_full:
+  type: kedro_datasets.pandas.ParquetDataset
+  filepath: data/06_models/mt_regression/mt_coef_pre_full.parquet
+
+mt_coef_post_full:
+  type: kedro_datasets.pandas.ParquetDataset
+  filepath: data/06_models/mt_regression/mt_coef_post_full.parquet
+
+mt_model_fit_stats:
+  type: kedro_datasets.pandas.ParquetDataset
+  filepath: data/08_reporting/mt_regression/parquet/mt_model_fit_stats.parquet
+
+mt_roc_values:
+  type: kedro_datasets.pandas.ParquetDataset
+  filepath: data/08_reporting/mt_regression/parquet/mt_roc_values.parquet
+
+mt_calibration_values:
+  type: kedro_datasets.pandas.ParquetDataset
+  filepath: data/08_reporting/mt_regression/parquet/mt_calibration_values.parquet
+
+mt_dca_values:
+  type: kedro_datasets.pandas.ParquetDataset
+  filepath: data/08_reporting/mt_regression/parquet/mt_dca_values.parquet
+
+mt_shap_like_pre_full:
+  type: kedro_datasets.pandas.ParquetDataset
+  filepath: data/08_reporting/mt_regression/shap/mt_shap_like_pre_full.parquet
+
+mt_shap_like_post_full:
+  type: kedro_datasets.pandas.ParquetDataset
+  filepath: data/08_reporting/mt_regression/shap/mt_shap_like_post_full.parquet
+
+mt_cv_results:
+  type: kedro_datasets.pandas.ParquetDataset
+  filepath: data/08_reporting/mt_regression/parquet/mt_cv_results.parquet
+
+mt_cv_summary:
+  type: kedro_datasets.pandas.ParquetDataset
+  filepath: data/08_reporting/mt_regression/parquet/mt_cv_summary.parquet
+
+mt_vif_pre_full:
+  type: kedro_datasets.pandas.ParquetDataset
+  filepath: data/08_reporting/mt_regression/parquet/mt_vif_pre_full.parquet
+
+mt_vif_post_full:
+  type: kedro_datasets.pandas.ParquetDataset
+  filepath: data/08_reporting/mt_regression/parquet/mt_vif_post_full.parquet
+
+mt_nri_idi_pre_vs_post:
+  type: kedro_datasets.pandas.ParquetDataset
+  filepath: data/08_reporting/mt_regression/parquet/mt_nri_idi_pre_vs_post.parquet
