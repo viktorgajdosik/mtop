@@ -8,3 +8,5 @@ numpy
 lightgbm
 pyarrow
 shap
+scikit-learn
+matplotlib
