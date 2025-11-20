@@ -17,6 +17,7 @@ try:
 except ImportError:
     HAS_SHAP = False
 
+
 # ---------------------------------------------------------
 # Paths – adjust if your catalog uses different locations
 # ---------------------------------------------------------
@@ -71,6 +72,66 @@ DCA_CSV_PATH = (
     / "decision_curve"
     / "mrs90_decision_curve_raw.csv"
 )
+
+APP_PASSWORD_KEY = "app_password"  # key in st.secrets
+
+
+# ---------------------------------------------------------
+# Password protection
+# ---------------------------------------------------------
+def check_password() -> bool:
+    """
+    Simple password gate using Streamlit secrets.
+
+    - If st.secrets[APP_PASSWORD_KEY] is set, require that password.
+    - If not set, show a warning and allow access (useful for local dev).
+    """
+
+    secret_password = None
+    try:
+        # st.secrets behaves like a dict when secrets are configured
+        if APP_PASSWORD_KEY in st.secrets:
+            secret_password = st.secrets[APP_PASSWORD_KEY]
+    except Exception:
+        # st.secrets may not exist locally; ignore and run unprotected
+        secret_password = None
+
+    # If no password is configured, run app without protection
+    if secret_password is None:
+        st.warning(
+            "App password is not configured in Streamlit secrets. "
+            "Running without authentication. "
+            "Set `app_password` in Streamlit Cloud secrets to protect this app."
+        )
+        return True
+
+    # If password already validated in this session, let user through
+    if st.session_state.get("password_correct", False):
+        return True
+
+    def _password_entered():
+        """Callback when user submits password."""
+        if st.session_state.get("password_input", "") == str(secret_password):
+            st.session_state["password_correct"] = True
+            # Don't store the actual password
+            st.session_state["password_input"] = ""
+        else:
+            st.session_state["password_correct"] = False
+
+    st.markdown("### Restricted access")
+    st.write("Please enter the access password to use this prognostic tool.")
+
+    st.text_input(
+        "Password",
+        type="password",
+        key="password_input",
+        on_change=_password_entered,
+    )
+
+    if "password_correct" in st.session_state and not st.session_state["password_correct"]:
+        st.error("Incorrect password. Please try again.")
+
+    return False
 
 
 # ---------------------------------------------------------
@@ -312,14 +373,9 @@ def build_category_mapping(
 
 
 # ---------------------------------------------------------
-# Streamlit UI
+# App body (runs only after password check)
 # ---------------------------------------------------------
-def main():
-    st.set_page_config(
-        page_title="mRS90 LightGBM Prognostic Calculator",
-        layout="centered",
-    )
-
+def run_app():
     st.title("mRS90 outcome – LightGBM prognostic model")
     st.caption("Predicted probability of good outcome (mRS 0–2 at 90 days).")
 
@@ -1036,6 +1092,24 @@ and may not directly transfer to all patient populations or settings.
         "Internal research tool – LightGBM model trained on pre-procedural stroke data "
         "with monotonic constraints. This is **not** a clinical decision support system."
     )
+
+
+# ---------------------------------------------------------
+# Main entry point
+# ---------------------------------------------------------
+def main():
+    st.set_page_config(
+        page_title="mRS90 LightGBM Prognostic Calculator",
+        layout="centered",
+    )
+
+    # Password gate
+    if not check_password():
+        # If password is wrong or not yet entered, do not render the app body
+        return
+
+    # If password is correct or not required, run the main app
+    run_app()
 
 
 if __name__ == "__main__":
