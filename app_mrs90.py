@@ -340,31 +340,27 @@ def build_category_mapping(
     columns: List[str],
 ) -> Dict[str, Dict[str, object]]:
     """
-    For each column, infer mapping from raw labels to encoded values.
+    For each column, infer mapping from raw labels to encoded values by
+    aligning mt_lightgbm_ready (raw_df) with X_train.
 
-    Prefer index-based alignment; fall back to patient_id-based merge
-    if indices don't overlap but both have patient_id.
+    Returns: {col_name: {raw_label: encoded_value, ...}, ...}
     """
     mapping: Dict[str, Dict[str, object]] = {}
     if raw_df is None:
         return mapping
 
-    # Try to align by index first
+    # First try index alignment (Kedro style)
     common_idx = X_train.index.intersection(raw_df.index)
-
     if not common_idx.empty:
-        # Index-based alignment
         Xc = X_train.loc[common_idx]
         Rc = raw_df.loc[common_idx]
 
         for col in columns:
             if col not in Xc.columns or col not in Rc.columns:
                 continue
-
             df_pairs = pd.DataFrame({"raw": Rc[col], "enc": Xc[col]}).dropna()
             if df_pairs.empty:
                 continue
-
             grouped = df_pairs.groupby("raw")["enc"].agg(
                 lambda s: s.mode().iloc[0] if not s.mode().empty else np.nan
             )
@@ -372,22 +368,20 @@ def build_category_mapping(
 
         return mapping
 
-    # Fallback: align via patient_id if present
+    # If no overlapping index but we have patient_id in both, align via merge
     if "patient_id" in X_train.columns and "patient_id" in raw_df.columns:
-        try:
-            raw_cols = ["patient_id"] + [c for c in columns if c in raw_df.columns]
-            enc_cols = ["patient_id"] + [c for c in columns if c in X_train.columns]
+        # Restrict to columns + patient_id that actually exist in each frame
+        cols_raw = ["patient_id"] + [c for c in columns if c in raw_df.columns]
+        cols_enc = ["patient_id"] + [c for c in columns if c in X_train.columns]
 
-            merged = (
-                raw_df[raw_cols]
-                .merge(
-                    X_train[enc_cols],
-                    on="patient_id",
-                    suffixes=("_raw", "_enc"),
-                )
+        merged = (
+            raw_df[cols_raw]
+            .merge(
+                X_train[cols_enc],
+                on="patient_id",
+                suffixes=("_raw", "_enc"),
             )
-        except Exception:
-            return mapping
+        )
 
         for col in columns:
             raw_col = f"{col}_raw"
@@ -406,7 +400,7 @@ def build_category_mapping(
 
         return mapping
 
-    # If neither index nor patient_id alignment is possible
+    # If we get here, we couldn't align raw_df and X_train
     return mapping
 
 
@@ -416,27 +410,6 @@ def build_category_mapping(
 def run_app():
     st.title("mRS90 outcome – LightGBM prognostic model")
     st.caption("Predicted probability of good outcome (mRS 0–2 at 90 days).")
-
-    # Sidebar: about + debug toggle
-    st.sidebar.header("About")
-    st.sidebar.write(
-        """
-This app uses a pre-procedural LightGBM model predicting the
-probability of good functional outcome (mRS 0–2 at 90 days)
-after mechanical thrombectomy.
-
-You can set key predictors for a single patient; all other
-model features are fixed to median (or most frequent) values
-from the training set.
-
-⚠️ Research use only – not clinical decision support.
-"""
-    )
-
-    debug_mode = st.sidebar.checkbox(
-        "Debug mode (show encoded vector / SHAP + data mapping info)",
-        value=False,
-    )
 
     # Load stuff
     model = load_model()
@@ -462,19 +435,47 @@ from the training set.
 
     cat_mapping = build_category_mapping(X_train, raw_df, MULTICAT_VARS)
 
+    # Sidebar – about + debug toggle
+    st.sidebar.header("About")
+    st.sidebar.write(
+        """
+This app uses a pre-procedural LightGBM model predicting the
+probability of good functional outcome (mRS 0–2 at 90 days)
+after mechanical thrombectomy.
+
+You can set key predictors for a single patient; all other
+model features are fixed to median (or most frequent) values
+from the training set.
+
+⚠️ Research use only – not clinical decision support.
+"""
+    )
+
+    debug_mode = st.sidebar.checkbox(
+        "Debug mode (show encoded vector / SHAP / data sources)",
+        value=False,
+    )
+
     # ------------ DEBUG: show data sources / mapping status ------------
     if debug_mode:
         st.sidebar.markdown("### Debug – data sources")
 
-        # 1) Did RAW_DATA_PATH load correctly?
+        # Show path and existence on disk
+        st.sidebar.write("RAW_DATA_PATH:", str(RAW_DATA_PATH))
+        try:
+            st.sidebar.write("RAW_DATA_PATH exists():", RAW_DATA_PATH.exists())
+        except Exception as e:
+            st.sidebar.write("RAW_DATA_PATH exists() error:", str(e))
+
+        # Did RAW_DATA_PATH load correctly?
         st.sidebar.write("RAW_DF is None:", raw_df is None)
         if raw_df is not None:
             st.sidebar.write("raw_df shape:", raw_df.shape)
 
-        # 2) Shape of X_train
+        # Shape of X_train
         st.sidebar.write("X_train shape:", X_train.shape)
 
-        # 3) Index overlap between X_train and raw_df
+        # Index overlap between X_train and raw_df
         try:
             if raw_df is not None:
                 common_idx = X_train.index.intersection(raw_df.index)
@@ -484,7 +485,7 @@ from the training set.
         except Exception as e:
             st.sidebar.write("Error computing common index:", str(e))
 
-        # 4) Which variables actually got a mapping
+        # Which variables actually got a mapping
         st.sidebar.write("MULTICAT_VARS:", MULTICAT_VARS)
         st.sidebar.write("cat_mapping keys:", list(cat_mapping.keys()))
 
