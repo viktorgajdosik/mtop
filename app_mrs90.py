@@ -333,37 +333,50 @@ def make_shap_safe_row(row: pd.DataFrame, X_train: pd.DataFrame) -> pd.DataFrame
                     safe.at[0, col] = col_series.dropna().mode().iloc[0]
     return safe
 
-
-def build_category_mapping(
-    X_train: pd.DataFrame,
-    raw_df: Optional[pd.DataFrame],
-    columns: List[str],
-) -> Dict[str, Dict[str, object]]:
-    """
-    For each column, infer mapping from raw labels to encoded values by
-    aligning mt_lightgbm_ready (raw_df) with X_train by index.
-
-    Returns: {col_name: {raw_label: encoded_value, ...}, ...}
-    """
+def build_category_mapping(X_train: pd.DataFrame,
+                           raw_df: Optional[pd.DataFrame],
+                           columns: List[str]) -> Dict[str, Dict[str, object]]:
     mapping: Dict[str, Dict[str, object]] = {}
     if raw_df is None:
         return mapping
 
+    # Try to align by index first
     common_idx = X_train.index.intersection(raw_df.index)
-    if common_idx.empty:
+    if not common_idx.empty:
+        Xc = X_train.loc[common_idx]
+        Rc = raw_df.loc[common_idx]
+    elif "patient_id" in X_train.columns and "patient_id" in raw_df.columns:
+        merged = (
+            raw_df[["patient_id"] + columns]
+            .merge(
+                X_train[["patient_id"] + columns],
+                on="patient_id",
+                suffixes=("_raw", "_enc"),
+            )
+        )
+    else:
         return mapping
 
-    Xc = X_train.loc[common_idx]
-    Rc = raw_df.loc[common_idx]
+    if common_idx.empty and "patient_id" in X_train.columns and "patient_id" in raw_df.columns:
+        for col in columns:
+            if f"{col}_raw" not in merged.columns or f"{col}_enc" not in merged.columns:
+                continue
+            df_pairs = merged[[f"{col}_raw", f"{col}_enc"]].dropna()
+            if df_pairs.empty:
+                continue
+            grouped = df_pairs.groupby(f"{col}_raw")[f"{col}_enc"].agg(
+                lambda s: s.mode().iloc[0] if not s.mode().empty else np.nan
+            )
+            mapping[col] = grouped.to_dict()
+        return mapping
 
+    # Original path (index alignment)
     for col in columns:
         if col not in Xc.columns or col not in Rc.columns:
             continue
-
         df_pairs = pd.DataFrame({"raw": Rc[col], "enc": Xc[col]}).dropna()
         if df_pairs.empty:
             continue
-
         grouped = df_pairs.groupby("raw")["enc"].agg(
             lambda s: s.mode().iloc[0] if not s.mode().empty else np.nan
         )
