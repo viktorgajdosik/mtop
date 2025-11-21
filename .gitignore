@@ -17,6 +17,12 @@ data/03_primary/**
 data/04_feature/**
 data/05_model_input/**
 
+# BUT allow specific model-input artifacts needed by the app
+!data/05_model_input/
+!data/05_model_input/mt_lightgbm_ready.parquet
+# (optional if you ever need it in app)
+# !data/05_model_input/mt_patients_regression_ready.parquet
+
 # allow models
 !data/06_models/**
 # but still ignore huge regression intermediate files if needed
@@ -25,6 +31,7 @@ data/05_model_input/**
 # allow model output reporting (safe)
 !data/07_model_output/**
 !data/08_reporting/**
+
 
 
 # ignore kedro-viz metadata
