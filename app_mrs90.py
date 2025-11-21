@@ -9,7 +9,7 @@ import streamlit as st
 from lightgbm import LGBMClassifier  # for type hints
 from pandas.api.types import is_numeric_dtype
 
-# Try to import SHAP
+# Try to import SHAP (kept for future use, but no debug UI)
 try:
     import shap
 
@@ -158,7 +158,6 @@ def load_raw_data() -> Optional[pd.DataFrame]:
         st.error(f"Raw data file not found at: {RAW_DATA_PATH}")
         return None
     except Exception as e:
-        # THIS is the crucial change: show the real error instead of silently returning None
         st.error(f"Error loading RAW_DATA_PATH ({RAW_DATA_PATH}): {e}")
         return None
 
@@ -203,6 +202,7 @@ def get_shap_explainer(_model: LGBMClassifier):
     """
     Cached SHAP TreeExplainer.
     Using `_model` prevents Streamlit from trying to hash the model object.
+    (Currently not exposed in the UI.)
     """
     if not HAS_SHAP:
         return None
@@ -210,7 +210,6 @@ def get_shap_explainer(_model: LGBMClassifier):
     try:
         return shap.TreeExplainer(_model)
     except Exception as e:
-        # Still allow the app to run if SHAP has compatibility issues
         st.warning(
             "SHAP explainer could not be created. "
             "This may happen with some LightGBM versions.\n\n"
@@ -438,7 +437,13 @@ def run_app():
 
     cat_mapping = build_category_mapping(X_train, raw_df, MULTICAT_VARS)
 
-    # Sidebar – about + debug toggle
+    # Constants for posterior vs anterior consistency
+    POSTERIOR_OCCLUSION_LABELS = {"BA", "AB+AV", "VA"}
+    POSTERIOR_HEMISPHERE_LABEL = "Posterior circulation"
+    LEFT_HEMISPHERE_LABEL = "Left hemisphere"
+    RIGHT_HEMISPHERE_LABEL = "Right hemisphere"
+
+    # Sidebar – about
     st.sidebar.header("About")
     st.sidebar.write(
         """
@@ -453,50 +458,6 @@ from the training set.
 ⚠️ Research use only – not clinical decision support.
 """
     )
-
-    debug_mode = st.sidebar.checkbox(
-        "Debug mode (show encoded vector / SHAP / data sources)",
-        value=False,
-    )
-
-    # ------------ DEBUG: show data sources / mapping status ------------
-    if debug_mode:
-        st.sidebar.markdown("### Debug – data sources")
-
-        # Show path and existence on disk
-        st.sidebar.write("RAW_DATA_PATH:", str(RAW_DATA_PATH))
-        try:
-            st.sidebar.write("RAW_DATA_PATH exists():", RAW_DATA_PATH.exists())
-        except Exception as e:
-            st.sidebar.write("RAW_DATA_PATH exists() error:", str(e))
-
-        # Did RAW_DATA_PATH load correctly?
-        st.sidebar.write("RAW_DF is None:", raw_df is None)
-        if raw_df is not None:
-            st.sidebar.write("raw_df shape:", raw_df.shape)
-
-        # Shape of X_train
-        st.sidebar.write("X_train shape:", X_train.shape)
-
-        # Index overlap between X_train and raw_df
-        try:
-            if raw_df is not None:
-                common_idx = X_train.index.intersection(raw_df.index)
-                st.sidebar.write("Common index length:", len(common_idx))
-            else:
-                st.sidebar.write("Common index length: N/A (raw_df is None)")
-        except Exception as e:
-            st.sidebar.write("Error computing common index:", str(e))
-
-        # Which variables actually got a mapping
-        st.sidebar.write("MULTICAT_VARS:", MULTICAT_VARS)
-        st.sidebar.write("cat_mapping keys:", list(cat_mapping.keys()))
-
-        if raw_df is None:
-            st.warning(
-                "DEBUG: mt_lightgbm_ready.parquet could not be loaded. "
-                "Multicategory dropdowns will fall back to numeric codes."
-            )
 
     st.markdown("### Patient characteristics")
 
@@ -731,6 +692,102 @@ from the training set.
                 continue
 
             # -------------------------------------------------
+            # Special handling: OCCLUSION_SITE with hemisphere gating
+            # -------------------------------------------------
+            if feat == "occlusion_site":
+                col_map = cat_mapping.get("occlusion_site", {})
+                if col_map:
+                    raw_labels = sorted(col_map.keys(), key=lambda x: str(x))
+                else:
+                    raw_labels = sorted(col_series.dropna().unique(), key=lambda x: str(x))
+                    col_map = {str(v): v for v in raw_labels}
+
+                # Get previously selected hemisphere label (string from selectbox)
+                hemi_label = st.session_state.get("hemisphere_sel", None)
+
+                allowed_raw_labels = raw_labels
+                if hemi_label == POSTERIOR_HEMISPHERE_LABEL:
+                    # Posterior hemisphere -> only BA / AB+AV / VA
+                    allowed_raw_labels = [
+                        lbl for lbl in raw_labels if lbl in POSTERIOR_OCCLUSION_LABELS
+                    ]
+                elif hemi_label in (LEFT_HEMISPHERE_LABEL, RIGHT_HEMISPHERE_LABEL):
+                    # Left/Right hemisphere -> exclude posterior occlusion sites
+                    allowed_raw_labels = [
+                        lbl for lbl in raw_labels if lbl not in POSTERIOR_OCCLUSION_LABELS
+                    ]
+
+                label_to_val = {"Missing": np.nan}
+                for lbl in allowed_raw_labels:
+                    enc = col_map.get(lbl, lbl)
+                    label_to_val[str(lbl)] = enc
+                options = list(label_to_val.keys())
+
+                # Use previous selection if still valid
+                prev = st.session_state.get("occlusion_site_sel", None)
+                default_label = prev if prev in options else "Missing"
+                default_idx = options.index(default_label)
+
+                with cols[col_idx]:
+                    selected = st.selectbox(
+                        "occlusion_site",
+                        options=options,
+                        index=default_idx,
+                        help="Categories taken from mt_lightgbm_ready (raw labels), plus 'Missing'.",
+                        key="occlusion_site_sel",
+                    )
+                manual_values["occlusion_site"] = label_to_val[selected]
+                col_idx = 1 - col_idx
+                continue
+
+            # -------------------------------------------------
+            # Special handling: HEMISPHERE with occlusion gating
+            # -------------------------------------------------
+            if feat == "hemisphere":
+                col_map = cat_mapping.get("hemisphere", {})
+                if col_map:
+                    raw_labels = sorted(col_map.keys(), key=lambda x: str(x))
+                else:
+                    raw_labels = sorted(col_series.dropna().unique(), key=lambda x: str(x))
+                    col_map = {str(v): v for v in raw_labels}
+
+                occ_label = st.session_state.get("occlusion_site_sel", None)
+
+                allowed_raw_labels = raw_labels
+                if occ_label in POSTERIOR_OCCLUSION_LABELS:
+                    # Posterior occlusion -> only posterior hemisphere
+                    allowed_raw_labels = [
+                        lbl for lbl in raw_labels if lbl == POSTERIOR_HEMISPHERE_LABEL
+                    ]
+                elif occ_label is not None and occ_label not in ("Missing",) and occ_label not in POSTERIOR_OCCLUSION_LABELS:
+                    # Non-posterior occlusion -> forbid posterior hemisphere
+                    allowed_raw_labels = [
+                        lbl for lbl in raw_labels if lbl != POSTERIOR_HEMISPHERE_LABEL
+                    ]
+
+                label_to_val = {"Missing": np.nan}
+                for lbl in allowed_raw_labels:
+                    enc = col_map.get(lbl, lbl)
+                    label_to_val[str(lbl)] = enc
+                options = list(label_to_val.keys())
+
+                prev = st.session_state.get("hemisphere_sel", None)
+                default_label = prev if prev in options else "Missing"
+                default_idx = options.index(default_label)
+
+                with cols[col_idx]:
+                    selected = st.selectbox(
+                        "hemisphere",
+                        options=options,
+                        index=default_idx,
+                        help="Categories taken from mt_lightgbm_ready (raw labels), plus 'Missing'.",
+                        key="hemisphere_sel",
+                    )
+                manual_values["hemisphere"] = label_to_val[selected]
+                col_idx = 1 - col_idx
+                continue
+
+            # -------------------------------------------------
             # THROMBOLYTICS / IVT_DIFFERENT_HOSPITAL (multicategory, gated)
             # -------------------------------------------------
             if feat in ("thrombolytics", "ivt_different_hospital"):
@@ -773,9 +830,9 @@ from the training set.
                 continue
 
             # -------------------------------------------------
-            # Generic MULTICAT variables (not gated by IVT)
+            # Generic MULTICAT variables (not gated by IVT or posterior rules)
             # -------------------------------------------------
-            if feat in MULTICAT_VARS:
+            if feat in MULTICAT_VARS and feat not in ("occlusion_site", "hemisphere"):
                 col_map = cat_mapping.get(feat, {})
                 if col_map:
                     raw_labels = sorted(col_map.keys(), key=lambda x: str(x))
@@ -926,62 +983,6 @@ from the training set.
             "Poor outcome (mRS 3–6)",
             f"{proba_bad * 100:.1f} %",
         )
-
-        if debug_mode:
-            st.markdown("#### Debug: encoded feature vector")
-            st.write(patient_row.T.rename(columns={0: "value"}))
-
-            st.markdown("#### Debug: SHAP explanation (if available)")
-            if not HAS_SHAP:
-                st.info(
-                    "SHAP package is not installed in this environment. "
-                    "Install `shap` to see feature contributions."
-                )
-            else:
-                try:
-                    explainer = get_shap_explainer(model)
-                    if explainer is None:
-                        st.info(
-                            "SHAP explainer is not available (initialization failed). "
-                            "Check LightGBM/SHAP versions if you need this."
-                        )
-                    else:
-                        safe_row = make_shap_safe_row(patient_row, X_train)
-                        shap_values = explainer.shap_values(safe_row)
-                        expected_value = explainer.expected_value
-
-                        # For LightGBM binary classifier
-                        if isinstance(shap_values, list):
-                            shap_for_pos = np.array(shap_values[1])[0]
-                            if isinstance(expected_value, (list, np.ndarray)):
-                                base_value = expected_value[1]
-                            else:
-                                base_value = expected_value
-                        else:
-                            shap_for_pos = np.array(shap_values)[0]
-                            base_value = expected_value
-
-                        shap_df = pd.DataFrame(
-                            {
-                                "feature": safe_row.columns,
-                                "value": patient_row.iloc[0].values,
-                                "shap": shap_for_pos,
-                                "abs_shap": np.abs(shap_for_pos),
-                            }
-                        ).sort_values("abs_shap", ascending=False)
-
-                        st.write("Top SHAP drivers (positive = pushes towards better outcome):")
-                        st.dataframe(shap_df.head(20).set_index("feature"))
-
-                        st.bar_chart(shap_df.head(20).set_index("feature")["shap"])
-                        st.caption(f"SHAP base value (log-odds for reference patient): {base_value:.3f}")
-
-                except Exception as e:
-                    st.warning(
-                        "Could not compute SHAP values. "
-                        "Make sure the `shap` package is installed and compatible with LightGBM.\n\n"
-                        f"Error: {e}"
-                    )
 
     # ------------------------------------------------------------------
     # Model performance for clinicians – dynamic from saved metrics
