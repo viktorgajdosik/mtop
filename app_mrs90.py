@@ -9,6 +9,11 @@ import streamlit as st
 from lightgbm import LGBMClassifier  # for type hints
 from pandas.api.types import is_numeric_dtype, is_categorical_dtype
 
+# Extra imports for debug
+import platform
+import hashlib
+import lightgbm
+
 # Try to import SHAP
 try:
     import shap
@@ -306,22 +311,22 @@ def build_patient_row(
                 data[feat] = mode_vals.get(feat, np.nan)
 
     df_row = pd.DataFrame([data], columns=feature_order)
-    
-    # NEW: force dtypes to match X_train (critical for LightGBM categoricals)
+
+    # ---- CRITICAL: force dtypes to match X_train (LightGBM categoricals) ----
     for col in feature_order:
         train_col = X_train[col]
         train_dtype = train_col.dtype
         try:
             if is_categorical_dtype(train_dtype):
-                # use same categories as training data
+                # Use same categories as training data
                 df_row[col] = pd.Categorical(
                     df_row[col],
-                    categories=train_col.cat.categories
+                    categories=train_col.cat.categories,
                 )
             else:
                 df_row[col] = df_row[col].astype(train_dtype)
         except Exception:
-            # If some conversion fails, just leave as-is rather than crashing
+            # If conversion fails, leave as-is (better than crashing)
             pass
 
     # Enforce *_missing indicators based on NaN of base vars
@@ -424,6 +429,22 @@ def build_category_mapping(
 
 
 # ---------------------------------------------------------
+# Debug helpers (file hashes)
+# ---------------------------------------------------------
+def _file_md5(path: pathlib.Path) -> str:
+    try:
+        with open(path, "rb") as f:
+            h = hashlib.md5()
+            for chunk in iter(lambda: f.read(8192), b""):
+                h.update(chunk)
+        return h.hexdigest()
+    except FileNotFoundError:
+        return "MISSING"
+    except Exception as e:
+        return f"ERROR: {e}"
+
+
+# ---------------------------------------------------------
 # App body (runs only after password check)
 # ---------------------------------------------------------
 def run_app():
@@ -476,11 +497,50 @@ from the training set.
 """
     )
 
-    # Debug mode (for encoded vector + SHAP)
+    # Debug mode (for encoded vector + SHAP + env info)
     debug_mode = st.sidebar.checkbox(
-        "Debug mode (show encoded feature vector / SHAP)",
+        "Debug mode (env, artifacts, encoded vector / SHAP)",
         value=False,
     )
+
+    # ---------------------------
+    # Debug: environment + artifacts + cache controls
+    # ---------------------------
+    if debug_mode:
+        st.markdown("### Debug: environment & artifacts")
+
+        st.json(
+            {
+                "python": platform.python_version(),
+                "lightgbm": lightgbm.__version__,
+                "pandas": pd.__version__,
+                "numpy": np.__version__,
+            }
+        )
+
+        st.markdown("#### Debug: model & data file hashes")
+        st.json(
+            {
+                "MODEL_PATH": str(MODEL_PATH),
+                "MODEL_MD5": _file_md5(MODEL_PATH),
+                "X_TRAIN_PATH": str(X_TRAIN_PATH),
+                "X_TRAIN_MD5": _file_md5(X_TRAIN_PATH),
+                "RAW_DATA_PATH": str(RAW_DATA_PATH),
+                "RAW_DATA_MD5": _file_md5(RAW_DATA_PATH),
+                "CALIBRATION_METRICS_PATH": str(CALIBRATION_METRICS_PATH),
+                "CALIBRATION_METRICS_MD5": _file_md5(CALIBRATION_METRICS_PATH),
+                "CV_METRICS_PATH": str(CV_METRICS_PATH),
+                "CV_METRICS_MD5": _file_md5(CV_METRICS_PATH),
+                "DCA_CSV_PATH": str(DCA_CSV_PATH),
+                "DCA_CSV_MD5": _file_md5(DCA_CSV_PATH),
+            }
+        )
+
+        st.markdown("#### Debug: Streamlit cache controls")
+        if st.button("Clear all Streamlit caches"):
+            st.cache_data.clear()
+            st.cache_resource.clear()
+            st.success("Caches cleared. Please rerun the app.")
 
     st.markdown("### Patient characteristics")
 
@@ -1007,9 +1067,31 @@ from the training set.
             f"{proba_bad * 100:.1f} %",
         )
 
+        # -------------------------------------------------
+        # Debug: fixed reference patient (for env comparison)
+        # -------------------------------------------------
+        debug_patient = {
+            "age": 70,
+            "admission_nihss": 14,
+            "mrs_before": 1,
+            "aspects": 9,
+            "onset_to_puncture_min": 180.0,
+        }
+        debug_row = build_patient_row(X_train, debug_patient)
+        debug_proba_good = float(model.predict_proba(debug_row)[0, 1])
+
+        if debug_mode:
+            st.markdown("#### Debug: fixed reference profile")
+            st.write("Reference profile (hard-coded, independent of UI):")
+            st.json(debug_patient)
+            st.write(
+                f"Reference profile – probability of good outcome (mRS 0–2): "
+                f"**{debug_proba_good:.4f}**"
+            )
+
         # ------------- Debug: encoded vector + SHAP -------------
         if debug_mode:
-            st.markdown("#### Debug: encoded feature vector")
+            st.markdown("#### Debug: encoded feature vector (current patient)")
             st.write(patient_row.T.rename(columns={0: "value"}))
 
             st.markdown("#### Debug: SHAP explanation (if available)")
