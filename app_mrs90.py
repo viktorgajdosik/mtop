@@ -333,55 +333,80 @@ def make_shap_safe_row(row: pd.DataFrame, X_train: pd.DataFrame) -> pd.DataFrame
                     safe.at[0, col] = col_series.dropna().mode().iloc[0]
     return safe
 
-def build_category_mapping(X_train: pd.DataFrame,
-                           raw_df: Optional[pd.DataFrame],
-                           columns: List[str]) -> Dict[str, Dict[str, object]]:
+
+def build_category_mapping(
+    X_train: pd.DataFrame,
+    raw_df: Optional[pd.DataFrame],
+    columns: List[str],
+) -> Dict[str, Dict[str, object]]:
+    """
+    For each column, infer mapping from raw labels to encoded values.
+
+    Prefer index-based alignment; fall back to patient_id-based merge
+    if indices don't overlap but both have patient_id.
+    """
     mapping: Dict[str, Dict[str, object]] = {}
     if raw_df is None:
         return mapping
 
     # Try to align by index first
     common_idx = X_train.index.intersection(raw_df.index)
+
     if not common_idx.empty:
+        # Index-based alignment
         Xc = X_train.loc[common_idx]
         Rc = raw_df.loc[common_idx]
-    elif "patient_id" in X_train.columns and "patient_id" in raw_df.columns:
-        merged = (
-            raw_df[["patient_id"] + columns]
-            .merge(
-                X_train[["patient_id"] + columns],
-                on="patient_id",
-                suffixes=("_raw", "_enc"),
-            )
-        )
-    else:
-        return mapping
 
-    if common_idx.empty and "patient_id" in X_train.columns and "patient_id" in raw_df.columns:
         for col in columns:
-            if f"{col}_raw" not in merged.columns or f"{col}_enc" not in merged.columns:
+            if col not in Xc.columns or col not in Rc.columns:
                 continue
-            df_pairs = merged[[f"{col}_raw", f"{col}_enc"]].dropna()
+
+            df_pairs = pd.DataFrame({"raw": Rc[col], "enc": Xc[col]}).dropna()
             if df_pairs.empty:
                 continue
-            grouped = df_pairs.groupby(f"{col}_raw")[f"{col}_enc"].agg(
+
+            grouped = df_pairs.groupby("raw")["enc"].agg(
                 lambda s: s.mode().iloc[0] if not s.mode().empty else np.nan
             )
             mapping[col] = grouped.to_dict()
+
         return mapping
 
-    # Original path (index alignment)
-    for col in columns:
-        if col not in Xc.columns or col not in Rc.columns:
-            continue
-        df_pairs = pd.DataFrame({"raw": Rc[col], "enc": Xc[col]}).dropna()
-        if df_pairs.empty:
-            continue
-        grouped = df_pairs.groupby("raw")["enc"].agg(
-            lambda s: s.mode().iloc[0] if not s.mode().empty else np.nan
-        )
-        mapping[col] = grouped.to_dict()
+    # Fallback: align via patient_id if present
+    if "patient_id" in X_train.columns and "patient_id" in raw_df.columns:
+        try:
+            raw_cols = ["patient_id"] + [c for c in columns if c in raw_df.columns]
+            enc_cols = ["patient_id"] + [c for c in columns if c in X_train.columns]
 
+            merged = (
+                raw_df[raw_cols]
+                .merge(
+                    X_train[enc_cols],
+                    on="patient_id",
+                    suffixes=("_raw", "_enc"),
+                )
+            )
+        except Exception:
+            return mapping
+
+        for col in columns:
+            raw_col = f"{col}_raw"
+            enc_col = f"{col}_enc"
+            if raw_col not in merged.columns or enc_col not in merged.columns:
+                continue
+
+            df_pairs = merged[[raw_col, enc_col]].dropna()
+            if df_pairs.empty:
+                continue
+
+            grouped = df_pairs.groupby(raw_col)[enc_col].agg(
+                lambda s: s.mode().iloc[0] if not s.mode().empty else np.nan
+            )
+            mapping[col] = grouped.to_dict()
+
+        return mapping
+
+    # If neither index nor patient_id alignment is possible
     return mapping
 
 
@@ -391,6 +416,27 @@ def build_category_mapping(X_train: pd.DataFrame,
 def run_app():
     st.title("mRS90 outcome – LightGBM prognostic model")
     st.caption("Predicted probability of good outcome (mRS 0–2 at 90 days).")
+
+    # Sidebar: about + debug toggle
+    st.sidebar.header("About")
+    st.sidebar.write(
+        """
+This app uses a pre-procedural LightGBM model predicting the
+probability of good functional outcome (mRS 0–2 at 90 days)
+after mechanical thrombectomy.
+
+You can set key predictors for a single patient; all other
+model features are fixed to median (or most frequent) values
+from the training set.
+
+⚠️ Research use only – not clinical decision support.
+"""
+    )
+
+    debug_mode = st.sidebar.checkbox(
+        "Debug mode (show encoded vector / SHAP + data mapping info)",
+        value=False,
+    )
 
     # Load stuff
     model = load_model()
@@ -415,14 +461,13 @@ def run_app():
     MULTICAT_VARS = [c for c in MULTICAT_VARS if c in X_train.columns]
 
     cat_mapping = build_category_mapping(X_train, raw_df, MULTICAT_VARS)
-    
-        # ------------ DEBUG: show data sources / mapping status ------------
+
+    # ------------ DEBUG: show data sources / mapping status ------------
     if debug_mode:
         st.sidebar.markdown("### Debug – data sources")
 
         # 1) Did RAW_DATA_PATH load correctly?
         st.sidebar.write("RAW_DF is None:", raw_df is None)
-
         if raw_df is not None:
             st.sidebar.write("raw_df shape:", raw_df.shape)
 
@@ -442,33 +487,12 @@ def run_app():
         # 4) Which variables actually got a mapping
         st.sidebar.write("MULTICAT_VARS:", MULTICAT_VARS)
         st.sidebar.write("cat_mapping keys:", list(cat_mapping.keys()))
-        
+
         if raw_df is None:
-          st.warning(
-            "DEBUG: mt_lightgbm_ready.parquet could not be loaded. "
-            "Multicategory dropdowns will fall back to numeric codes."
-        )
-
-    # Sidebar
-    st.sidebar.header("About")
-    st.sidebar.write(
-        """
-This app uses a pre-procedural LightGBM model predicting the
-probability of good functional outcome (mRS 0–2 at 90 days)
-after mechanical thrombectomy.
-
-You can set key predictors for a single patient; all other
-model features are fixed to median (or most frequent) values
-from the training set.
-
-⚠️ Research use only – not clinical decision support.
-"""
-    )
-
-    debug_mode = st.sidebar.checkbox(
-        "Debug mode (show encoded vector / SHAP if available)",
-        value=False,
-    )
+            st.warning(
+                "DEBUG: mt_lightgbm_ready.parquet could not be loaded. "
+                "Multicategory dropdowns will fall back to numeric codes."
+            )
 
     st.markdown("### Patient characteristics")
 
