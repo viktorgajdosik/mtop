@@ -1,0 +1,9 @@
+{
+  "ivt_gt_puncture": 5,
+  "puncture_gt_recan": 25,
+  "aspects_gt10": 0,
+  "nihss_24h_gt42": 4,
+  "nihss_7d_gt42": 67,
+  "total_removed": 101,
+  "final_rows": 1476
+}

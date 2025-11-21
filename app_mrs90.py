@@ -9,7 +9,7 @@ import streamlit as st
 from lightgbm import LGBMClassifier  # for type hints
 from pandas.api.types import is_numeric_dtype
 
-# Try to import SHAP (kept for future use, but no debug UI)
+# Try to import SHAP
 try:
     import shap
 
@@ -202,7 +202,6 @@ def get_shap_explainer(_model: LGBMClassifier):
     """
     Cached SHAP TreeExplainer.
     Using `_model` prevents Streamlit from trying to hash the model object.
-    (Currently not exposed in the UI.)
     """
     if not HAS_SHAP:
         return None
@@ -210,6 +209,7 @@ def get_shap_explainer(_model: LGBMClassifier):
     try:
         return shap.TreeExplainer(_model)
     except Exception as e:
+        # Still allow the app to run if SHAP has compatibility issues
         st.warning(
             "SHAP explainer could not be created. "
             "This may happen with some LightGBM versions.\n\n"
@@ -438,7 +438,7 @@ def run_app():
     cat_mapping = build_category_mapping(X_train, raw_df, MULTICAT_VARS)
 
     # Constants for posterior vs anterior consistency
-    POSTERIOR_OCCLUSION_LABELS = {"BA", "AB+AV", "VA"}
+    POSTERIOR_OCCLUSION_LABELS = {"BA", "AB+AV", "VA", "PCA"}
     POSTERIOR_HEMISPHERE_LABEL = "Posterior circulation"
     LEFT_HEMISPHERE_LABEL = "Left hemisphere"
     RIGHT_HEMISPHERE_LABEL = "Right hemisphere"
@@ -457,6 +457,12 @@ from the training set.
 
 ⚠️ Research use only – not clinical decision support.
 """
+    )
+
+    # Debug mode (for encoded vector + SHAP)
+    debug_mode = st.sidebar.checkbox(
+        "Debug mode (show encoded feature vector / SHAP)",
+        value=False,
     )
 
     st.markdown("### Patient characteristics")
@@ -707,7 +713,7 @@ from the training set.
 
                 allowed_raw_labels = raw_labels
                 if hemi_label == POSTERIOR_HEMISPHERE_LABEL:
-                    # Posterior hemisphere -> only BA / AB+AV / VA
+                    # Posterior hemisphere -> only BA / AB+AV / VA / PCA
                     allowed_raw_labels = [
                         lbl for lbl in raw_labels if lbl in POSTERIOR_OCCLUSION_LABELS
                     ]
@@ -983,6 +989,63 @@ from the training set.
             "Poor outcome (mRS 3–6)",
             f"{proba_bad * 100:.1f} %",
         )
+
+        # ------------- Debug: encoded vector + SHAP -------------
+        if debug_mode:
+            st.markdown("#### Debug: encoded feature vector")
+            st.write(patient_row.T.rename(columns={0: "value"}))
+
+            st.markdown("#### Debug: SHAP explanation (if available)")
+            if not HAS_SHAP:
+                st.info(
+                    "SHAP package is not installed in this environment. "
+                    "Install `shap` to see feature contributions."
+                )
+            else:
+                try:
+                    explainer = get_shap_explainer(model)
+                    if explainer is None:
+                        st.info(
+                            "SHAP explainer is not available (initialization failed). "
+                            "Check LightGBM/SHAP versions if you need this."
+                        )
+                    else:
+                        safe_row = make_shap_safe_row(patient_row, X_train)
+                        shap_values = explainer.shap_values(safe_row)
+                        expected_value = explainer.expected_value
+
+                        # For LightGBM binary classifier
+                        if isinstance(shap_values, list):
+                            shap_for_pos = np.array(shap_values[1])[0]
+                            if isinstance(expected_value, (list, np.ndarray)):
+                                base_value = expected_value[1]
+                            else:
+                                base_value = expected_value
+                        else:
+                            shap_for_pos = np.array(shap_values)[0]
+                            base_value = expected_value
+
+                        shap_df = pd.DataFrame(
+                            {
+                                "feature": safe_row.columns,
+                                "value": patient_row.iloc[0].values,
+                                "shap": shap_for_pos,
+                                "abs_shap": np.abs(shap_for_pos),
+                            }
+                        ).sort_values("abs_shap", ascending=False)
+
+                        st.write("Top SHAP drivers (positive = pushes towards better outcome):")
+                        st.dataframe(shap_df.head(20).set_index("feature"))
+
+                        st.bar_chart(shap_df.head(20).set_index("feature")["shap"])
+                        st.caption(f"SHAP base value (log-odds for reference patient): {base_value:.3f}")
+
+                except Exception as e:
+                    st.warning(
+                        "Could not compute SHAP values. "
+                        "Make sure the `shap` package is installed and compatible with LightGBM.\n\n"
+                        f"Error: {e}"
+                    )
 
     # ------------------------------------------------------------------
     # Model performance for clinicians – dynamic from saved metrics

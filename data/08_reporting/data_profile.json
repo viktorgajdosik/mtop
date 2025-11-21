@@ -1,0 +1,143 @@
+{
+  "eda_audit": {
+    "shape": {
+      "rows": 1476,
+      "cols": 48
+    },
+    "columns": [
+      "patient_id",
+      "onset_date",
+      "onset_time",
+      "age",
+      "sex",
+      "aspects",
+      "occlusion_site",
+      "hemisphere",
+      "procedure",
+      "stent_combo",
+      "extraction_system",
+      "thrombolytics",
+      "procedure_duration",
+      "tici",
+      "ivt_given",
+      "ivt_different_hospital",
+      "transfer_from_other_hospital",
+      "iat_given",
+      "onset_to_ivt_min",
+      "onset_to_puncture_min",
+      "onset_to_recan_min",
+      "admission_nihss",
+      "nihss_24h",
+      "nihss_7d",
+      "sich",
+      "non_sich",
+      "mrs_before",
+      "mrs90",
+      "antithrombotics_before",
+      "statins_before",
+      "hypertension",
+      "diabetes",
+      "hyperlipidemia",
+      "smoking",
+      "alcohol_abuse",
+      "bmi",
+      "arrhythmia",
+      "tia_before",
+      "cmp_before",
+      "heart_condition",
+      "systolic_bp",
+      "diastolic_bp",
+      "glycemia",
+      "cholesterol",
+      "etiology",
+      "cerebral_edema",
+      "decompression_surgery",
+      "anesthesia"
+    ],
+    "missingness_top20": {
+      "cholesterol": 0.4519,
+      "onset_to_ivt_min": 0.4153,
+      "onset_to_recan_min": 0.3008,
+      "aspects": 0.2961,
+      "nihss_7d": 0.2033,
+      "glycemia": 0.1958,
+      "nihss_24h": 0.1714,
+      "anesthesia": 0.1314,
+      "tici": 0.1138,
+      "mrs_before": 0.1091,
+      "decompression_surgery": 0.1043,
+      "alcohol_abuse": 0.0867,
+      "mrs90": 0.084,
+      "smoking": 0.0799,
+      "statins_before": 0.0711,
+      "etiology": 0.0596,
+      "antithrombotics_before": 0.0522,
+      "onset_to_puncture_min": 0.0467,
+      "hyperlipidemia": 0.0413,
+      "onset_time": 0.0373
+    },
+    "outcomes": {
+      "sich": {
+        "type": "categorical_or_few_levels",
+        "counts": {
+          "0": 1397,
+          "1": 58,
+          "NaN": 21
+        }
+      },
+      "cerebral_edema": {
+        "type": "categorical_or_few_levels",
+        "counts": {
+          "0": 1224,
+          "1": 235,
+          "NaN": 17
+        }
+      },
+      "nihss_7d": {
+        "type": "numeric",
+        "min": 0.0,
+        "median": 5.0,
+        "max": 42.0,
+        "n_missing": 300
+      },
+      "mrs90": {
+        "type": "categorical_or_few_levels",
+        "counts": {
+          "6": 235,
+          "1": 209,
+          "5": 208,
+          "3": 188,
+          "0": 186,
+          "4": 180,
+          "2": 146,
+          "NaN": 124
+        }
+      }
+    },
+    "violations": {
+      "ivt_time_present_despite_no_ivt": 0,
+      "ivt_gt_puncture": 0,
+      "puncture_gt_recan": 0,
+      "duplicate_patient_id": 0
+    }
+  },
+  "data_quality": {
+    "time_violations": {
+      "ivt_gt_puncture_rows": [],
+      "puncture_gt_recan_rows": [],
+      "ivt_gt_puncture_n": 0,
+      "puncture_gt_recan_n": 0
+    },
+    "range_violations": {
+      "aspects_out_of_range_rows": [],
+      "aspects_out_of_range_n": 0,
+      "mrs_before_out_of_range_rows": [],
+      "mrs_before_out_of_range_n": 0,
+      "mrs90_out_of_range_rows": [],
+      "mrs90_out_of_range_n": 0,
+      "nihss7d_flag_gt_42_rows": [],
+      "nihss7d_blanked_gt_99_rows": []
+    }
+  },
+  "generated_from": "kedro pipeline: data_cleaning + eda_audit merge"
+}

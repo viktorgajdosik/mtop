@@ -1,0 +1,18 @@
+{
+  "time_violations": {
+    "ivt_gt_puncture_rows": [],
+    "puncture_gt_recan_rows": [],
+    "ivt_gt_puncture_n": 0,
+    "puncture_gt_recan_n": 0
+  },
+  "range_violations": {
+    "aspects_out_of_range_rows": [],
+    "aspects_out_of_range_n": 0,
+    "mrs_before_out_of_range_rows": [],
+    "mrs_before_out_of_range_n": 0,
+    "mrs90_out_of_range_rows": [],
+    "mrs90_out_of_range_n": 0,
+    "nihss7d_flag_gt_42_rows": [],
+    "nihss7d_blanked_gt_99_rows": []
+  }
+}
