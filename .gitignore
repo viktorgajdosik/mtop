@@ -18,7 +18,8 @@ data/04_feature/**
 data/05_model_input/**
 
 # BUT allow specific model-input artifacts needed by the app
-!data/05_model_input/** 
+!data/05_model_input/
+!data/05_model_input/mt_lightgbm_ready.parquet
 # (optional if you ever need it in app)
 # !data/05_model_input/mt_patients_regression_ready.parquet
 
