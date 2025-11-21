@@ -415,6 +415,39 @@ def run_app():
     MULTICAT_VARS = [c for c in MULTICAT_VARS if c in X_train.columns]
 
     cat_mapping = build_category_mapping(X_train, raw_df, MULTICAT_VARS)
+    
+        # ------------ DEBUG: show data sources / mapping status ------------
+    if debug_mode:
+        st.sidebar.markdown("### Debug – data sources")
+
+        # 1) Did RAW_DATA_PATH load correctly?
+        st.sidebar.write("RAW_DF is None:", raw_df is None)
+
+        if raw_df is not None:
+            st.sidebar.write("raw_df shape:", raw_df.shape)
+
+        # 2) Shape of X_train
+        st.sidebar.write("X_train shape:", X_train.shape)
+
+        # 3) Index overlap between X_train and raw_df
+        try:
+            if raw_df is not None:
+                common_idx = X_train.index.intersection(raw_df.index)
+                st.sidebar.write("Common index length:", len(common_idx))
+            else:
+                st.sidebar.write("Common index length: N/A (raw_df is None)")
+        except Exception as e:
+            st.sidebar.write("Error computing common index:", str(e))
+
+        # 4) Which variables actually got a mapping
+        st.sidebar.write("MULTICAT_VARS:", MULTICAT_VARS)
+        st.sidebar.write("cat_mapping keys:", list(cat_mapping.keys()))
+        
+        if raw_df is None:
+          st.warning(
+            "DEBUG: mt_lightgbm_ready.parquet could not be loaded. "
+            "Multicategory dropdowns will fall back to numeric codes."
+        )
 
     # Sidebar
     st.sidebar.header("About")
