@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 from lightgbm import LGBMClassifier  # for type hints
-from pandas.api.types import is_numeric_dtype
+from pandas.api.types import is_numeric_dtype, is_categorical_dtype
 
 # Try to import SHAP
 try:
@@ -306,6 +306,23 @@ def build_patient_row(
                 data[feat] = mode_vals.get(feat, np.nan)
 
     df_row = pd.DataFrame([data], columns=feature_order)
+    
+    # NEW: force dtypes to match X_train (critical for LightGBM categoricals)
+    for col in feature_order:
+        train_col = X_train[col]
+        train_dtype = train_col.dtype
+        try:
+            if is_categorical_dtype(train_dtype):
+                # use same categories as training data
+                df_row[col] = pd.Categorical(
+                    df_row[col],
+                    categories=train_col.cat.categories
+                )
+            else:
+                df_row[col] = df_row[col].astype(train_dtype)
+        except Exception:
+            # If some conversion fails, just leave as-is rather than crashing
+            pass
 
     # Enforce *_missing indicators based on NaN of base vars
     for col in feature_order:

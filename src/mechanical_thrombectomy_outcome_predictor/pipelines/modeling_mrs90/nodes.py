@@ -141,8 +141,6 @@ def build_mrs90_dataset(
 
     for c in cat_like:
         df[c] = df[c].astype("category")
-        codes = df[c].cat.codes  # -1 for NaN
-        df[c] = codes.replace(-1, np.nan)
 
     X = df[feature_cols]
 
@@ -221,6 +219,7 @@ def train_mrs90_lgbm(
         random_state=42,
         n_jobs=-1,
         monotone_constraints=monotone_constraints,
+        enable_categorical=True,
     )
 
     model.fit(X_train, y)

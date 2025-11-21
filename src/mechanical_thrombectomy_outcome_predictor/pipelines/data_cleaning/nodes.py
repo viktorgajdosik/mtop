@@ -152,47 +152,6 @@ def _to_binary(series: pd.Series, true_tokens: List[str], false_tokens: List[str
         return np.nan
     return series.map(_map)
 
-def _collapse_heart_condition(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Collapse multi-category 'heart_condition' into binary:
-      - 0 = 'No finding' (and synonyms)
-      - 1 = any other non-missing diagnosis
-      - NaN stays NaN
-
-    This runs AFTER value translations and missing-marker normalization,
-    so we expect things like Czech -> English already handled.
-    """
-    if "heart_condition" not in df.columns:
-        return df
-
-    s = df["heart_condition"].astype("string").str.strip().str.lower()
-
-    # Values meaning "no cardiac pathology" that we want as 0
-    no_finding_values = {
-        "no finding",
-        "no finding.",
-        "bez nálezu",
-        "bez nalezu",
-        "bez nálezu.",
-        "bez nalezu.",
-        "normal",
-        "normal finding",
-        "physiological",
-    }
-
-    # Start with all NaN
-    out = pd.Series(np.nan, index=df.index, dtype="float")
-
-    # 0 = clinically no heart disease
-    out[s.isin(no_finding_values)] = 0.0
-
-    # 1 = any other non-missing diagnosis (CAD, AF, valve disease, etc.)
-    out[~s.isna() & ~s.isin(no_finding_values)] = 1.0
-
-    df["heart_condition"] = out.astype("Int8")
-
-    return df
-
 
 def clean_mt_patients(
     mt_patients_raw: pd.DataFrame,
@@ -269,11 +228,6 @@ def clean_mt_patients(
     for col in binary_cols:
         if col in df.columns:
             df[col] = _to_binary(df[col], true_tokens, false_tokens, na_tokens)
-    
-    # --- collapse multi-categorical heart_condition -> binary 0/1 ---
-    # 0 = "No finding" (and synonyms), 1 = any other diagnosis, NaN stays NaN.
-    if "heart_condition" in df.columns:
-        df = _collapse_heart_condition(df)
 
 
     # --- IVT consistency rules ---
@@ -420,6 +374,7 @@ def make_lightgbm_ready(df: pd.DataFrame) -> pd.DataFrame:
         "occlusion_site",
         "etiology",
         "ivt_given",
+        "thrombolytics",
         "ivt_different_hospital",
         "transfer_from_other_hospital",
         "iat_given",

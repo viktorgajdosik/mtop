@@ -45,6 +45,7 @@
   "occlusion_site_missing",
   "etiology_missing",
   "ivt_given_missing",
+  "thrombolytics_missing",
   "ivt_different_hospital_missing",
   "transfer_from_other_hospital_missing",
   "antithrombotics_before_missing",
