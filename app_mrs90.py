@@ -155,8 +155,11 @@ def load_raw_data() -> Optional[pd.DataFrame]:
     try:
         return pd.read_parquet(RAW_DATA_PATH)
     except FileNotFoundError:
+        st.error(f"Raw data file not found at: {RAW_DATA_PATH}")
         return None
-    except Exception:
+    except Exception as e:
+        # THIS is the crucial change: show the real error instead of silently returning None
+        st.error(f"Error loading RAW_DATA_PATH ({RAW_DATA_PATH}): {e}")
         return None
 
 
