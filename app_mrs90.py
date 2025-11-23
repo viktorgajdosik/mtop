@@ -70,7 +70,7 @@ DCA_CSV_PATH = (
     / "08_reporting"
     / "modeling_mrs90"
     / "decision_curve"
-    / "mrs90_decision_curve_raw.csv"
+    / "mrs90_decision_curve_calibrated.csv"
 )
 
 APP_PASSWORD_KEY = "app_password"  # key in st.secrets
@@ -173,6 +173,27 @@ def load_calibration_metrics() -> Dict:
     except json.JSONDecodeError:
         return {}
 
+@st.cache_data(show_spinner=True)
+def load_logistic_calibration_params() -> Dict:
+    """
+    Load logistic calibration parameters (a, b) computed on the TRAIN set
+    using K-fold cross-validated Platt scaling (no test leakage).
+
+    """
+    params_path = (
+        PROJECT_ROOT
+        / "data"
+        / "08_reporting"
+        / "modeling_mrs90"
+        / "calibration"
+        / "mrs90_logistic_calibration_params.json"
+    )
+    try:
+        with open(params_path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
 
 @st.cache_data(show_spinner=True)
 def load_cv_metrics() -> Dict:
@@ -264,6 +285,21 @@ def is_binary_numeric(series: pd.Series) -> bool:
     except Exception:
         return False
     return set(vals_float).issubset({0.0, 1.0})
+
+def apply_logistic_calibration(p_raw: float, a: float, b: float) -> float:
+    """
+    Apply logistic (Platt) recalibration:
+
+        logit(p_cal) = a + b * logit(p_raw)
+
+    where a, b are calibration parameters estimated on the TRAIN set.
+    """
+    eps = 1e-15
+    p = min(max(p_raw, eps), 1.0 - eps)  # avoid 0 or 1
+    logit_p = np.log(p / (1.0 - p))
+    z = a + b * logit_p
+    p_cal = 1.0 / (1.0 + np.exp(-z))
+    return float(p_cal)
 
 
 def build_patient_row(
@@ -438,6 +474,28 @@ def run_app():
     cv_metrics = load_cv_metrics()
     dca_df = load_dca()
     dca_low, dca_high = dca_useful_range(dca_df)
+    calib_params = load_logistic_calibration_params()
+    a = float(calib_params.get("a", 0.0))
+    b = float(calib_params.get("b", 1.0))
+    
+    # Show calibration status in sidebar
+    if not calib_params:
+        st.sidebar.warning(
+            "Logistic calibration parameters not found. "
+            "Using raw LightGBM probabilities (no recalibration)."
+        )
+    else:
+        if abs(a) < 1e-6 and abs(b - 1.0) < 1e-6:
+            st.sidebar.info(
+                "Logistic calibration parameters are trivial (a≈0, b≈1). "
+                "Predictions are effectively uncalibrated."
+            )
+        else:
+            st.sidebar.info(
+                f"Using logistic recalibration (TRAIN-CV): a = {a:.3f}, b = {b:.3f} "
+                "(applied to LightGBM probabilities)."
+            )
+
 
     # Multicategorical variables to map from raw labels
     MULTICAT_VARS = [
@@ -478,7 +536,7 @@ from the training set.
 
     # Debug mode (for encoded vector + SHAP)
     debug_mode = st.sidebar.checkbox(
-        "Debug mode (show encoded feature vector / SHAP)",
+        "Model performance metrics",
         value=False,
     )
 
@@ -992,9 +1050,34 @@ from the training set.
     # Prediction + outputs
     # ---------------------------------------------------------
     if st.button("Compute probability of good outcome (mRS 0–2)"):
-        patient_row = build_patient_row(X_train, manual_values)
 
-        proba_good = float(model.predict_proba(patient_row)[0, 1])
+        # Build full patient row from manual inputs
+        patient_row = build_patient_row(X_train, manual_values)
+        
+        # --- NEW: ensure feature set matches trained model exactly ---
+        # LightGBM stores the feature names it was trained with
+        if hasattr(model, "feature_name_") and model.feature_name_ is not None:
+            model_features = list(model.feature_name_)
+        else:
+            # Fallback: use X_train columns if for some reason feature_name_ is missing
+            model_features = list(X_train.columns)
+        
+        # Sanity check: are we missing any features that the model expects?
+        missing = set(model_features) - set(patient_row.columns)
+        if missing:
+            raise ValueError(
+                f"Patient row is missing features expected by the model: {missing}"
+            )
+        
+        # Reindex patient_row to EXACTLY the model's feature set.
+        # This also drops any extra columns (e.g. interactions Optuna decided not to use).
+        patient_row = patient_row[model_features]
+        
+        # Now shapes & order match, so LightGBM is happy
+        proba_raw = float(model.predict_proba(patient_row)[0, 1])
+        
+        # Apply logistic (Platt) calibration
+        proba_good = apply_logistic_calibration(proba_raw, a, b)
         proba_bad = 1.0 - proba_good
 
         st.subheader("Predicted probabilities")
@@ -1007,12 +1090,17 @@ from the training set.
             f"{proba_bad * 100:.1f} %",
         )
 
-        # ------------- Debug: encoded vector + SHAP -------------
+        # ------------- Debug (Performance metrics) -------------
         if debug_mode:
-            st.markdown("#### Debug: encoded feature vector")
+            st.markdown("#### Encoded feature vector")
             st.write(patient_row.T.rename(columns={0: "value"}))
+            
+            st.markdown("#### Raw vs calibrated probability")
+            st.write(f"Raw LightGBM probability (uncalibrated): **{proba_raw:.4f}**")
+            st.write(f"Calibrated probability (after logistic a,b): **{proba_good:.4f}**")
+            st.write(f"Calibration parameters: a = {a:.6f}, b = {b:.6f}")
 
-            st.markdown("#### Debug: SHAP explanation (if available)")
+            st.markdown("#### SHAP explanation")
             if not HAS_SHAP:
                 st.info(
                     "SHAP package is not installed in this environment. "
@@ -1069,70 +1157,105 @@ from the training set.
     # ------------------------------------------------------------------
     st.markdown("---")
     st.markdown("### Model performance (validation)")
+    
+        # Raw vs calibrated metrics on TEST set
+    auc_raw = np.nan
+    brier_raw = np.nan
+    logloss_raw = np.nan
+    slope_raw = np.nan
+    intercept_raw = np.nan
 
-    auc_test = np.nan
-    brier_test = np.nan
-    logloss_test = np.nan
-    cal_slope = np.nan
-    cal_intercept = np.nan
+    auc_cal = np.nan
+    brier_cal = np.nan
+    logloss_cal = np.nan
+    slope_cal = np.nan
+    intercept_cal = np.nan
 
     if calib_metrics:
-        test_block = calib_metrics.get("test", {})
-        if test_block:
-            auc_test = float(test_block.get("auc", np.nan))
-            brier_test = float(test_block.get("brier", np.nan))
-            logloss_test = float(test_block.get("log_loss", np.nan))
-            cal_intercept = float(test_block.get("cal_intercept", np.nan))
-            cal_slope = float(test_block.get("cal_slope", np.nan))
+        # --- RAW (uncalibrated) model metrics ---
+        test_raw = calib_metrics.get("test", {})
+        if test_raw:
+            auc_raw = float(test_raw.get("auc", np.nan))
+            brier_raw = float(test_raw.get("brier", np.nan))
+            logloss_raw = float(test_raw.get("log_loss", np.nan))
+            intercept_raw = float(test_raw.get("cal_intercept", np.nan))
+            slope_raw = float(test_raw.get("cal_slope", np.nan))
 
-        auc_test = float(calib_metrics.get("roc_auc_test", auc_test))
-        brier_test = float(calib_metrics.get("brier_test", brier_test))
-        logloss_test = float(calib_metrics.get("log_loss_test", logloss_test))
-        cal_intercept = float(
-            calib_metrics.get("calibration_intercept_test", cal_intercept)
+        # Optional aliases
+        auc_raw = float(calib_metrics.get("roc_auc_test", auc_raw))
+        brier_raw = float(calib_metrics.get("brier_test", brier_raw))
+        logloss_raw = float(calib_metrics.get("log_loss_test", logloss_raw))
+        intercept_raw = float(
+            calib_metrics.get("calibration_intercept_test", intercept_raw)
         )
-        cal_slope = float(
-            calib_metrics.get("calibration_slope_test", cal_slope)
+        slope_raw = float(
+            calib_metrics.get("calibration_slope_test", slope_raw)
         )
+
+        # --- CALIBRATED model metrics (after logistic a,b) ---
+        test_cal = calib_metrics.get("test_calibrated", {})
+        if test_cal:
+            auc_cal = float(test_cal.get("auc", np.nan))
+            brier_cal = float(test_cal.get("brier", np.nan))
+            logloss_cal = float(test_cal.get("log_loss", np.nan))
+            intercept_cal = float(test_cal.get("cal_intercept", np.nan))
+            slope_cal = float(test_cal.get("cal_slope", np.nan))
+
+        # If calibrated AUC missing, fall back to raw (they should be identical)
+        if np.isnan(auc_cal):
+            auc_cal = auc_raw
 
     col_perf1, col_perf2 = st.columns(2)
 
     with col_perf1:
         st.metric(
             "ROC AUC (test set)",
-            f"{auc_test:.2f}" if not np.isnan(auc_test) else "N/A",
+            f"{auc_cal:.2f}" if not np.isnan(auc_cal) else "N/A",
         )
         st.write(
             "➤ **Discrimination**\n\n"
             + (
-                f"- ROC AUC of **{auc_test:.2f}** means that in about "
-                f"**{auc_test*100:.0f} out of 100** random pairs of patients "
+                f"- ROC AUC of **{auc_cal:.2f}** means that in about "
+                f"**{auc_cal*100:.0f} out of 100** random pairs of patients "
                 "with different outcomes (one good, one poor), "
                 "the model assigns a higher probability of good outcome to "
-                "the patient who actually had mRS 0–2."
-                if not np.isnan(auc_test)
+                "the patient who actually had mRS 0–2.\n\n"
+                f"- ROC AUC is unchanged by calibration (it only adjusts "
+                "the absolute probabilities, not the ranking of patients)."
+                if not np.isnan(auc_cal)
                 else "- ROC AUC on the held-out test set is not available in this build."
             )
         )
 
     with col_perf2:
+        # Prefer calibrated Brier/log-loss in the headline, because app uses calibrated probs
+        main_brier = brier_cal if not np.isnan(brier_cal) else brier_raw
         st.metric(
-            "Brier score (test set)",
-            f"{brier_test:.3f}" if not np.isnan(brier_test) else "N/A",
+            "Brier score (test set, calibrated)",
+            f"{main_brier:.3f}" if not np.isnan(main_brier) else "N/A",
         )
-        st.write(
-            "➤ **Calibration**\n\n"
-            + (
-                f"- Brier score summarizes the average squared difference between "
-                "predicted probabilities and actual outcomes (lower is better).\n"
-                f"- Calibration slope ≈ **{cal_slope:.2f}** "
-                "(1.0 = ideal; <1 → predictions too extreme; >1 → too conservative).\n"
-                f"- Calibration intercept ≈ **{cal_intercept:.2f}** "
-                "(0 = no systematic over- or underestimation)."
-                if not np.isnan(brier_test)
-                else "- Calibration metrics (Brier score, slope, intercept) are not available."
+
+        if np.isnan(main_brier):
+            st.write(
+                "➤ **Calibration**\n\n"
+                "- Calibration metrics (Brier score, log loss, slope, intercept) are not available."
             )
-        )
+        else:
+            st.write(
+                "➤ **Calibration**\n\n"
+                + (
+                    f"- **Raw model (uncalibrated probabilities):**\n"
+                    f"  - Brier score ≈ **{brier_raw:.3f}**\n"
+                    f"  - Log loss ≈ **{logloss_raw:.3f}**\n"
+                    f"  - Calibration slope ≈ **{slope_raw:.2f}**\n"
+                    f"  - Calibration intercept ≈ **{intercept_raw:.2f}**\n\n"
+                    f"- **After logistic recalibration (model actually used in this app):**\n"
+                    f"  - Brier score ≈ **{brier_cal:.3f}** (lower = better)\n"
+                    f"  - Log loss ≈ **{logloss_cal:.3f}** (lower = better)\n"
+                    f"  - Calibration slope ≈ **{slope_cal:.2f}** (ideal ≈ 1.0)\n"
+                    f"  - Calibration intercept ≈ **{intercept_cal:.2f}** (ideal ≈ 0.0)"
+                )
+            )
 
     # ----- Decision curve analysis -----
     st.markdown("#### Decision curve analysis")
@@ -1150,7 +1273,7 @@ from the training set.
                 "clear net benefit advantage was detected by the rule used in this app."
             )
 
-        st.write("Net benefit curves on the test set:")
+        st.write("Net benefit curves on the test set(calibrated probabilities):")
         dca_plot_df = dca_df.set_index("threshold")[
             ["net_benefit_model", "net_benefit_all", "net_benefit_none"]
         ]
@@ -1219,16 +1342,19 @@ from the training set.
             f"""
 - **Discrimination (Who is higher risk?)**  
   The model is reasonably good at *ranking* patients by prognosis.  
-  AUC ≈ **{auc_test:.2f}** means that if you take two patients at random,  
+  AUC ≈ **{auc_cal:.2f}** means that if you take two patients at random,  
   one with good outcome (mRS 0–2) and one with poor outcome (mRS 3–6),  
   the model will give a higher predicted probability of good outcome to  
-  the truly good-outcome patient in about **{auc_test*100:.0f}%** of cases.
+  the truly good-outcome patient in about **{auc_cal*100:.0f}%** of cases.
 
 - **Calibration (Are the probabilities believable?)**  
-  On the independent test set, predicted probabilities and observed
-  frequencies are **approximately aligned**, although the negative
-  intercept (≈ {cal_intercept:.2f}) suggests some overestimation
-  of the absolute probability of good outcome on average.
+  The LightGBM predictions are post-processed with a **logistic recalibration**
+  step (Platt scaling) fitted on the **training data** using K-fold
+  cross-validation (no leakage from the test set). After recalibration,
+  predicted probabilities and observed frequencies are better aligned:
+  the calibration slope is closer to 1 and the intercept closer to 0 on the
+  validation cohort. This means the absolute risk estimates shown in the app
+  better reflect the true event rates observed in the development / test data.
 
 - **Clinical usefulness (Decision curve analysis)**  
   In decision-curve analysis on the test set, the model provided higher

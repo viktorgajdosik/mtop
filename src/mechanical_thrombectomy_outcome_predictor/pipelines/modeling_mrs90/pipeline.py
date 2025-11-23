@@ -2,7 +2,8 @@ from kedro.pipeline import Pipeline, node
 
 from .nodes import (
     build_mrs90_dataset,
-    train_mrs90_lgbm,
+    optuna_tune_mrs90_lgbm,
+    train_mrs90_lgbm_with_optuna,
     evaluate_mrs90_lgbm,
     mrs90_feature_importance,
     compute_mrs90_shap,
@@ -28,12 +29,26 @@ def create_pipeline(**kwargs) -> Pipeline:
                 ],
                 name="build_mrs90_dataset_node",
             ),
-            node(
-                func=train_mrs90_lgbm,
+                        node(
+                func=optuna_tune_mrs90_lgbm,
                 inputs=["mrs90_X_train", "mrs90_y_train"],
+                outputs=[
+                    "mrs90_lgbm_optuna_best_params",
+                    "mrs90_lgbm_cv_metrics_raw_10x20",
+                ],
+                name="optuna_tune_mrs90_lgbm_node",
+            ),
+                        node(
+                func=train_mrs90_lgbm_with_optuna,
+                inputs=[
+                    "mrs90_X_train",
+                    "mrs90_y_train",
+                    "mrs90_lgbm_optuna_best_params",
+                ],
                 outputs=["mrs90_lgbm_model", "mrs90_train_metrics"],
                 name="train_mrs90_lgbm_node",
             ),
+
             node(
                 func=evaluate_mrs90_lgbm,
                 inputs=[

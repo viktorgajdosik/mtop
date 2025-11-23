@@ -58,5 +58,8 @@
   "arrhythmia_missing",
   "tia_before_missing",
   "cmp_before_missing",
-  "heart_condition_missing"
+  "heart_condition_missing",
+  "age_x_nihss",
+  "onset_to_puncture_min_x_nihss",
+  "age_x_onset_to_puncture_min"
 ]

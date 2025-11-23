@@ -161,7 +161,21 @@ mrs90_shap_train_values:
 mrs90_shap_test_values:
   type: kedro_datasets.pickle.PickleDataset
   filepath: data/08_reporting/modeling_mrs90/shap/mrs90_shap_test_values.pkl
+# Optuna best params for final model
+mrs90_lgbm_optuna_best_params:
+  type: kedro_datasets.json.JSONDataset
+  filepath: data/06_models/modeling_mrs90/mrs90_lgbm_optuna_best_params.json
+  save_args:
+    indent: 2
+    ensure_ascii: false
 
+# CV metrics in the format expected by the Streamlit app
+mrs90_lgbm_cv_metrics_raw_10x20:
+  type: kedro_datasets.json.JSONDataset
+  filepath: data/08_reporting/modeling_mrs90/cv/mrs90_lgbm_cv_metrics_raw_10x20.json
+  save_args:
+    indent: 2
+    ensure_ascii: false
 # Expected value (base value)
 mrs90_shap_expected_value:
   type: kedro_datasets.json.JSONDataset

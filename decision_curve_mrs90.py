@@ -1,12 +1,18 @@
 # decision_curve_mrs90.py
 import os
+import json
 
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
-# Use RAW LightGBM test predictions (from Kedro evaluate node)
+from src.mechanical_thrombectomy_outcome_predictor.pipelines.modeling_mrs90.calibration_utils import (
+    apply_logistic_calibration,
+)
+
+# RAW LightGBM test predictions (from Kedro evaluate node)
 PRED_PATH = "data/08_reporting/modeling_mrs90/evaluate/mrs90_test_predictions.parquet"
+CAL_PARAMS_PATH = "data/08_reporting/modeling_mrs90/calibration/mrs90_logistic_calibration_params.json"
 OUT_DIR = "data/08_reporting/modeling_mrs90/decision_curve"
 
 
@@ -57,26 +63,36 @@ def main():
     print(f"Loading test predictions from: {PRED_PATH}")
     df_pred = pd.read_parquet(PRED_PATH)
 
-    # Expect columns from evaluate_mrs90_lgbm()
+    # Expect columns from evaluate_mrs90_lgbm():
     #   'y_true', 'y_pred_proba', 'y_pred_label', 'patient_id'
     y_true = df_pred["y_true"].values
-    proba = df_pred["y_pred_proba"].values  # RAW LightGBM probabilities
+    proba_raw = df_pred["y_pred_proba"].values  # RAW LightGBM probabilities
 
-    # Match regression-style thresholds: 0.05–0.75
+    # Load logistic calibration parameters (TRAIN-CV)
+    print(f"Loading calibration params from: {CAL_PARAMS_PATH}")
+    with open(CAL_PARAMS_PATH, "r", encoding="utf-8") as f:
+        cal_params = json.load(f)
+    a = float(cal_params.get("a", 0.0))
+    b = float(cal_params.get("b", 1.0))
+
+    print(f"Using logistic calibration: a = {a:.4f}, b = {b:.4f}")
+    proba_cal = apply_logistic_calibration(proba_raw, a, b)
+
+    # Thresholds: 0.05–0.75
     thresholds = np.linspace(0.05, 0.75, 15)
-    dca_df = decision_curve(y_true, proba, thresholds)
+    dca_df = decision_curve(y_true, proba_cal, thresholds)
 
-    # Save raw numbers
-    out_csv = os.path.join(OUT_DIR, "mrs90_decision_curve_raw.csv")
+    # Save calibrated numbers
+    out_csv = os.path.join(OUT_DIR, "mrs90_decision_curve_calibrated.csv")
     dca_df.to_csv(out_csv, index=False)
-    print("Saved DCA table:", out_csv)
+    print("Saved calibrated DCA table:", out_csv)
 
     # Plot decision curve
     plt.figure()
     plt.plot(
         dca_df["threshold"],
         dca_df["net_benefit_model"],
-        label="LightGBM (raw)",
+        label="LightGBM + logistic calibration (TRAIN-CV)",
     )
     plt.plot(
         dca_df["threshold"],
@@ -92,15 +108,15 @@ def main():
     )
     plt.xlabel("Threshold probability for mRS 0–2")
     plt.ylabel("Net benefit")
-    plt.title("Decision curve – mRS90 LightGBM model (TEST, raw)")
+    plt.title("Decision curve – mRS90 LightGBM (TEST, calibrated probabilities)")
     plt.legend(loc="best")
     plt.grid(alpha=0.3)
 
-    out_png = os.path.join(OUT_DIR, "mrs90_decision_curve_raw.png")
+    out_png = os.path.join(OUT_DIR, "mrs90_decision_curve_calibrated.png")
     plt.tight_layout()
     plt.savefig(out_png, dpi=200)
     plt.close()
-    print("Saved decision curve plot:", out_png)
+    print("Saved calibrated decision curve plot:", out_png)
 
 
 if __name__ == "__main__":

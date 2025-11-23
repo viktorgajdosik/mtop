@@ -2,24 +2,45 @@
   "train": {
     "dataset": "train",
     "n": 1131,
-    "auc": 0.9025860746875239,
-    "brier": 0.14545462636120574,
-    "log_loss": 0.4614703143666424,
-    "cal_intercept": -0.3388052918389488,
-    "cal_slope": 2.2513505365733373
+    "auc": 0.8488005776653119,
+    "brier": 0.16468355031350776,
+    "log_loss": 0.5035210563650032,
+    "cal_intercept": -0.3188858930067806,
+    "cal_slope": 1.5468859164603836
   },
   "test": {
     "dataset": "test",
     "n": 221,
-    "auc": 0.7892955362809393,
-    "brier": 0.17884850709956338,
-    "log_loss": 0.5353022354871414,
-    "cal_intercept": -0.8948311677138655,
-    "cal_slope": 1.287012616941732
+    "auc": 0.8017770255976306,
+    "brier": 0.18015543723555025,
+    "log_loss": 0.535489658697098,
+    "cal_intercept": -0.983157210769516,
+    "cal_slope": 1.2284195497820467
   },
-  "roc_auc_test": 0.7892955362809393,
-  "brier_test": 0.17884850709956338,
-  "log_loss_test": 0.5353022354871414,
-  "calibration_intercept_test": -0.8948311677138655,
-  "calibration_slope_test": 1.287012616941732
+  "roc_auc_test": 0.8017770255976306,
+  "brier_test": 0.18015543723555025,
+  "log_loss_test": 0.535489658697098,
+  "calibration_intercept_test": -0.983157210769516,
+  "calibration_slope_test": 1.2284195497820467,
+  "train_calibrated": {
+    "dataset": "train_calibrated",
+    "n": 1131,
+    "auc": 0.8488005776653119,
+    "brier": 0.16212681901528284,
+    "log_loss": 0.4970531772542555,
+    "cal_intercept": 0.12376468168492132,
+    "cal_slope": 1.5697470356768863
+  },
+  "test_calibrated": {
+    "dataset": "test_calibrated",
+    "n": 221,
+    "auc": 0.8017770255976306,
+    "brier": 0.16263650909993033,
+    "log_loss": 0.4949858004631719,
+    "cal_intercept": -0.6313289116599665,
+    "cal_slope": 1.246203499460442
+  },
+  "roc_auc_test_calibrated": 0.8017770255976306,
+  "brier_test_calibrated": 0.16263650909993033,
+  "log_loss_test_calibrated": 0.4949858004631719
 }
