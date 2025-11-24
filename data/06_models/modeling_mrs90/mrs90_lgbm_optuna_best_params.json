@@ -1,14 +1,14 @@
 {
   "use_age_x_nihss": true,
   "use_onset_to_puncture_min_x_nihss": false,
-  "use_age_x_onset_to_puncture_min": true,
-  "n_estimators": 367,
-  "learning_rate": 0.025609572120903715,
-  "num_leaves": 23,
-  "min_child_samples": 138,
-  "subsample": 0.9574353136316142,
-  "colsample_bytree": 0.40359219878899305,
-  "reg_alpha": 3.4972463464874863,
-  "reg_lambda": 2.3003749097164383,
-  "class_weight": "balanced"
+  "use_age_x_onset_to_puncture_min": false,
+  "n_estimators": 263,
+  "learning_rate": 0.030951048693661557,
+  "num_leaves": 24,
+  "min_child_samples": 53,
+  "subsample": 0.9399430554852175,
+  "colsample_bytree": 0.5059222633997253,
+  "reg_alpha": 4.367057563936692,
+  "reg_lambda": 6.1791698269356825,
+  "class_weight": null
 }

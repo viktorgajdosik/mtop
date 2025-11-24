@@ -1,0 +1,7 @@
+step,name,description,n_patients
+1,raw_registry,Patients in raw thrombectomy registry (before cleaning),1577
+2,cleaned,"Records after deterministic cleaning (header normalization, value translations, missing markers)",1577
+3,valid,Records after exclusion of physiologically impossible values and logical time-order violations,1476
+4,validated,Validated cohort after range checks and type casting,1476
+5,split_annotated,Validated cohort with temporal split labels (train vs test),1476
+6,mrs90_observed,Patients with observed 90-day mRS (included in outcome modeling),1352

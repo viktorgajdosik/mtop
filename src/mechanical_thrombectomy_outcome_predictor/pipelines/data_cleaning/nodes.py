@@ -354,6 +354,7 @@ def make_lightgbm_ready(df: pd.DataFrame) -> pd.DataFrame:
         "diastolic_bp",
         "cholesterol",
         "glycemia",
+        "procedure_duration",
         # handle whichever NIHSS naming you actually have:
         "nihss_admission",
         "admission_nihss",
@@ -392,6 +393,12 @@ def make_lightgbm_ready(df: pd.DataFrame) -> pd.DataFrame:
         "cerebral_edema",
         "decompression_surgery",
         "anesthesia",
+        "exctraction_system",
+        "sich",
+        "non_sich",
+        "procedure",
+        "tici",
+        "stent_combo",
     ]
 
     for col in categorical_for_flags:

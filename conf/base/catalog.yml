@@ -131,7 +131,6 @@ mrs90_lgbm_model:
   type: kedro_datasets.pickle.PickleDataset
   filepath: data/06_models/modeling_mrs90/mrs90_lgbm_model.pkl
 
-
 mrs90_train_metrics:
   type: kedro_datasets.json.JSONDataset
   filepath: data/08_reporting/modeling_mrs90/evaluate/mrs90_train_metrics.json
@@ -161,6 +160,7 @@ mrs90_shap_train_values:
 mrs90_shap_test_values:
   type: kedro_datasets.pickle.PickleDataset
   filepath: data/08_reporting/modeling_mrs90/shap/mrs90_shap_test_values.pkl
+
 # Optuna best params for final model
 mrs90_lgbm_optuna_best_params:
   type: kedro_datasets.json.JSONDataset
@@ -176,6 +176,7 @@ mrs90_lgbm_cv_metrics_raw_10x20:
   save_args:
     indent: 2
     ensure_ascii: false
+
 # Expected value (base value)
 mrs90_shap_expected_value:
   type: kedro_datasets.json.JSONDataset
@@ -228,68 +229,92 @@ mrs90_shap_age_lt85_ge85:
   type: kedro_datasets.matplotlib.MatplotlibWriter
   filepath: data/08_reporting/modeling_mrs90/shap/mrs90_shap_age_lt85_ge85.png
 
-# Logistic regression imputation
-mt_patients_regression_ready:
-  type: kedro_datasets.pandas.ParquetDataset
-  filepath: data/05_model_input/mt_patients_regression_ready.parquet
 
-regression_imputation_log:
+# =======================
+# REPORTING / TRIPOD
+# =======================
+
+mt_cohort_flow_table:
+  type: pandas.CSVDataset
+  filepath: data/08_reporting/reporting_mrs90/mt_cohort_flow_table.csv
+
+mt_cohort_flow_diagram:
+  type: kedro_datasets.matplotlib.MatplotlibWriter
+  filepath: data/08_reporting/reporting_mrs90/mt_cohort_flow_diagram.png
+  save_args:
+    dpi: 200
+    bbox_inches: tight
+    format: png
+
+mrs90_outcome_availability:
+  type: pandas.CSVDataset
+  filepath: data/08_reporting/reporting_mrs90/mrs90_outcome_availability.csv
+
+mrs90_missingness_table:
+  type: kedro_datasets.pandas.ParquetDataset
+  filepath: data/08_reporting/reporting_mrs90/mrs90_missingness_table.parquet
+
+mrs90_baseline_by_outcome:
+  type: pandas.CSVDataset
+  filepath: data/08_reporting/reporting_mrs90/mrs90_baseline_by_outcome.csv
+
+mrs90_predictor_dictionary:
+  type: kedro_datasets.pandas.ExcelDataset
+  filepath: data/08_reporting/reporting_mrs90/mrs90_predictor_dictionary.xlsx
+  save_args:
+    engine: openpyxl
+    index: false
+
+mrs90_cv_summary_table:
+  type: pandas.CSVDataset
+  filepath: data/08_reporting/modeling_mrs90/cv/mrs90_cv_summary_table.csv
+
+# Metrics produced by calibration_mrs90_analysis.py
+mrs90_calibration_metrics_raw:
   type: kedro_datasets.json.JSONDataset
-  filepath: data/08_reporting/data_cleaning/imputation/regression_imputation_log.json
+  filepath: data/08_reporting/modeling_mrs90/calibration/mrs90_calibration_metrics_raw.json
   save_args:
     indent: 2
     ensure_ascii: false
 
-# Logistic regression outputs (tables)
+mrs90_logistic_calibration_params:
+  type: kedro_datasets.json.JSONDataset
+  filepath: data/08_reporting/modeling_mrs90/calibration/mrs90_logistic_calibration_params.json
+  save_args:
+    indent: 2
+    ensure_ascii: false
 
-mt_coef_pre_full:
-  type: kedro_datasets.pandas.ParquetDataset
-  filepath: data/06_models/mt_regression/mt_coef_pre_full.parquet
+mrs90_performance_summary:
+  type: pandas.CSVDataset
+  filepath: data/08_reporting/modeling_mrs90/performance/mrs90_performance_summary.csv
 
-mt_coef_post_full:
-  type: kedro_datasets.pandas.ParquetDataset
-  filepath: data/06_models/mt_regression/mt_coef_post_full.parquet
+mrs90_threshold_performance:
+  type: pandas.CSVDataset
+  filepath: data/08_reporting/modeling_mrs90/performance/mrs90_threshold_performance.csv
 
-mt_model_fit_stats:
-  type: kedro_datasets.pandas.ParquetDataset
-  filepath: data/08_reporting/mt_regression/parquet/mt_model_fit_stats.parquet
+mrs90_model_spec:
+  type: json.JSONDataset
+  filepath: data/08_reporting/modeling_mrs90/spec/mrs90_model_spec.json
+  save_args:
+    indent: 2
+    ensure_ascii: false
+  versioned: False
 
-mt_roc_values:
+mrs90_shap_top30:
   type: kedro_datasets.pandas.ParquetDataset
-  filepath: data/08_reporting/mt_regression/parquet/mt_roc_values.parquet
+  filepath: data/08_reporting/modeling_mrs90/shap/mrs90_shap_top30.parquet
 
-mt_calibration_values:
-  type: kedro_datasets.pandas.ParquetDataset
-  filepath: data/08_reporting/mt_regression/parquet/mt_calibration_values.parquet
+# DCA table from decision_curve_mrs90.py
+mrs90_decision_curve_calibrated:
+  type: pandas.CSVDataset
+  filepath: data/08_reporting/modeling_mrs90/decision_curve/mrs90_decision_curve_calibrated.csv
 
-mt_dca_values:
-  type: kedro_datasets.pandas.ParquetDataset
-  filepath: data/08_reporting/mt_regression/parquet/mt_dca_values.parquet
+mrs90_dca_summary:
+  type: pandas.CSVDataset
+  filepath: data/08_reporting/modeling_mrs90/decision_curve/mrs90_dca_summary.csv
 
-mt_shap_like_pre_full:
-  type: kedro_datasets.pandas.ParquetDataset
-  filepath: data/08_reporting/mt_regression/shap/mt_shap_like_pre_full.parquet
-
-mt_shap_like_post_full:
-  type: kedro_datasets.pandas.ParquetDataset
-  filepath: data/08_reporting/mt_regression/shap/mt_shap_like_post_full.parquet
-
-mt_cv_results:
-  type: kedro_datasets.pandas.ParquetDataset
-  filepath: data/08_reporting/mt_regression/parquet/mt_cv_results.parquet
-
-mt_cv_summary:
-  type: kedro_datasets.pandas.ParquetDataset
-  filepath: data/08_reporting/mt_regression/parquet/mt_cv_summary.parquet
-
-mt_vif_pre_full:
-  type: kedro_datasets.pandas.ParquetDataset
-  filepath: data/08_reporting/mt_regression/parquet/mt_vif_pre_full.parquet
-
-mt_vif_post_full:
-  type: kedro_datasets.pandas.ParquetDataset
-  filepath: data/08_reporting/mt_regression/parquet/mt_vif_post_full.parquet
-
-mt_nri_idi_pre_vs_post:
-  type: kedro_datasets.pandas.ParquetDataset
-  filepath: data/08_reporting/mt_regression/parquet/mt_nri_idi_pre_vs_post.parquet
+mrs90_tripod_excel:
+  type: kedro_datasets.pandas.ExcelDataset
+  filepath: data/08_reporting/modeling_mrs90/tripod/mrs90_tripod_excel.xlsx
+  save_args:
+    engine: openpyxl     

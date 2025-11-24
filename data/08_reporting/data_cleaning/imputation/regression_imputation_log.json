@@ -14,6 +14,7 @@
     "diastolic_bp_missing",
     "cholesterol_missing",
     "glycemia_missing",
+    "procedure_duration_missing",
     "admission_nihss_missing",
     "nihss_24h_missing",
     "nihss_7d_missing",
@@ -41,7 +42,12 @@
     "heart_condition_missing",
     "cerebral_edema_missing",
     "decompression_surgery_missing",
-    "anesthesia_missing"
+    "anesthesia_missing",
+    "sich_missing",
+    "non_sich_missing",
+    "procedure_missing",
+    "tici_missing",
+    "stent_combo_missing"
   ],
   "numeric_cols_imputed": [
     "age",

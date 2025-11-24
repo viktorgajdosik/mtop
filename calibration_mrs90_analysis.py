@@ -273,7 +273,7 @@ def main():
             "Platt / logistic calibration fitted on TRAIN using "
             f"{N_SPLITS_CAL}-fold cross-validation (out-of-fold predictions). "
             "Use: p_cal = logistic(a + b * logit(p_raw)), "
-            "where p_raw is the LightGBM predicted probability for mRS 0–2."
+            "where p_raw is the LightGBM predicted probability for mRS 0 to 2."
         ),
     }
     cal_params_path = os.path.join(

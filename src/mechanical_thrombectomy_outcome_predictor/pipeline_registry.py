@@ -5,7 +5,7 @@ from mechanical_thrombectomy_outcome_predictor.pipelines import (
     data_splitting,
     baseline_characteristics,
     modeling_mrs90,
-    mt_regression,
+    reporting_mrs90, 
 )
 
 
@@ -15,7 +15,7 @@ def register_pipelines() -> dict[str, Pipeline]:
     split = data_splitting.create_pipeline()
     base = baseline_characteristics.create_pipeline()
     mrs = modeling_mrs90.create_pipeline()
-    regression = mt_regression.create_pipeline()
+    report = reporting_mrs90.create_pipeline()
 
     return {
         "data_cleaning": dc,
@@ -23,6 +23,6 @@ def register_pipelines() -> dict[str, Pipeline]:
         "data_splitting": split,
         "baseline_characteristics": base,
         "modeling_mrs90": mrs,
-        "mt_regression": regression,
+        "reporting_mrs90": report,
         "__default__": dc + split + base + eda + mrs,
     }
