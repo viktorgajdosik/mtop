@@ -7,13 +7,8 @@ from typing import Dict, List
 # Global switches for experiments
 # -------------------------------------------------------------------
 
-# === 1) Feature engineering: interaction terms ===
-# These control whether interaction features are created in build_mrs90_dataset.
-ADD_INTERACTION_AGE_X_NIHSS: bool = True
-ADD_INTERACTION_ONSET_TO_PUNCTURE_MIN_X_NIHSS: bool = True
-ADD_INTERACTION_AGE_X_ONSET_TO_PUNCTURE_MIN: bool = True
 
-# === 2) Monotone constraints ===
+# === 1) Monotone constraints ===
 # Monotonic constraint on glycemia:
 #   False -> monotone decreasing (higher glycemia → worse outcome)
 #   True  -> no constraint (0) and let the model learn freely.

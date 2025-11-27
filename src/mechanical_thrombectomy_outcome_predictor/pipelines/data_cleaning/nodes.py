@@ -253,7 +253,6 @@ def clean_mt_patients(
 
     return df, log
 
-# ----- ADD BELOW YOUR EXISTING CODE IN nodes.py -----
 from typing import Any, Dict, Tuple
 import matplotlib.pyplot as plt
 
@@ -325,6 +324,67 @@ def validate_and_fix(df: pd.DataFrame) -> tuple[pd.DataFrame, Dict[str, Any]]:
             df[c] = df[c].astype("Int8")
 
     return df, log
+
+
+from typing import Any, Dict, Tuple
+
+
+def merge_reports(eda_audit_report: Dict[str, Any], data_quality_violations: Dict[str, Any]) -> Dict[str, Any]:
+    """Merge EDA audit and DQ violations into one JSON-able dict."""
+    return {
+        "eda_audit": eda_audit_report,
+        "data_quality": data_quality_violations,
+        "generated_from": "kedro pipeline: data_cleaning + eda_audit merge",
+    }
+
+
+def exclude_invalid_cases(df: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, int]]:
+    """
+    Exclude records with physiologically or logically impossible values:
+      - onset_to_ivt_min > onset_to_puncture_min
+      - onset_to_puncture_min > onset_to_recan_min
+      - ASPECTS > 10
+      - any NIHSS_* > 42
+    Returns: filtered_df, exclusion_summary
+    """
+    initial_count = len(df)
+    removed = {}
+
+    # --- Logical time-order violations ---
+    if set(["onset_to_ivt_min", "onset_to_puncture_min"]).issubset(df.columns):
+        mask_ivt_gt_puncture = (
+            df["onset_to_ivt_min"].notna()
+            & df["onset_to_puncture_min"].notna()
+            & (df["onset_to_ivt_min"] > df["onset_to_puncture_min"])
+        )
+        removed["ivt_gt_puncture"] = int(mask_ivt_gt_puncture.sum())
+        df = df.loc[~mask_ivt_gt_puncture]
+
+    if set(["onset_to_puncture_min", "onset_to_recan_min"]).issubset(df.columns):
+        mask_puncture_gt_recan = (
+            df["onset_to_puncture_min"].notna()
+            & df["onset_to_recan_min"].notna()
+            & (df["onset_to_puncture_min"] > df["onset_to_recan_min"])
+        )
+        removed["puncture_gt_recan"] = int(mask_puncture_gt_recan.sum())
+        df = df.loc[~mask_puncture_gt_recan]
+
+    # --- Clinical plausibility ---
+    if "aspects" in df.columns:
+        mask_aspects = df["aspects"].notna() & (df["aspects"] > 10)
+        removed["aspects_gt10"] = int(mask_aspects.sum())
+        df = df.loc[~mask_aspects]
+
+    for col in ["nihss_admission", "nihss_24h", "nihss_7d"]:
+        if col in df.columns:
+            mask_nihss = df[col].notna() & (df[col] > 42)
+            removed[f"{col}_gt42"] = int(mask_nihss.sum())
+            df = df.loc[~mask_nihss]
+
+    final_count = len(df)
+    removed["total_removed"] = initial_count - final_count
+    removed["final_rows"] = final_count
+    return df, removed
 
 def make_lightgbm_ready(df: pd.DataFrame) -> pd.DataFrame:
     """
@@ -406,221 +466,3 @@ def make_lightgbm_ready(df: pd.DataFrame) -> pd.DataFrame:
             df[f"{col}_missing"] = df[col].isna().astype("Int8")
 
     return df
-
-# ======== NEW NODE: create mt_patients_regression_ready with MICE + logs ========
-
-from typing import Any, Dict, Tuple
-
-
-def make_regression_ready(
-    df: pd.DataFrame,
-    random_state: int = 42,
-) -> Tuple[pd.DataFrame, Dict[str, Any]]:
-    """
-    Take mt_lightgbm_ready (already cleaned + with missingness flags)
-    and produce mt_patients_regression_ready by:
-
-      - Automatically detecting which variables to impute
-      - MICE (IterativeImputer) for numeric columns
-      - Mode imputation for categorical/binary columns
-      - Keeping all *_missing flag columns unchanged
-      - Returning a log dict with:
-          * which columns were imputed
-          * missing counts before/after
-          * MICE iterations
-          * success flag (True if all imputed cols have no NA)
-
-    This is a single complete-case dataset suitable for
-    multivariable logistic regression.
-    """
-
-    df = df.copy()
-    log: Dict[str, Any] = {}
-
-    # --- Protect some columns from imputation ---
-    protected_cols = []
-    for cand in ["mrs90", "good_mrs", "patient_id", "case_id", "row_id"]:
-        if cand in df.columns:
-            protected_cols.append(cand)
-
-    # Missingness flags should NOT be imputed
-    missing_flag_cols = [c for c in df.columns if c.endswith("_missing")]
-
-    # --- Detect numeric columns to impute ---
-    numeric_cols = [
-        c
-        for c in df.select_dtypes(include=["number"]).columns
-        if c not in protected_cols and c not in missing_flag_cols
-    ]
-
-    # --- Detect categorical columns to impute ---
-    categorical_cols: list[str] = []
-    for c in df.columns:
-        if c in protected_cols or c in missing_flag_cols:
-            continue
-        dtype_str = str(df[c].dtype)
-        if dtype_str.startswith("object") or dtype_str.startswith("category"):
-            categorical_cols.append(c)
-
-    # Save what we decided to impute
-    log["protected_cols"] = protected_cols
-    log["missing_flag_cols"] = missing_flag_cols
-    log["numeric_cols_imputed"] = numeric_cols
-    log["categorical_cols_imputed"] = categorical_cols
-
-    # Missing counts BEFORE imputation
-    cols_for_missing = numeric_cols + categorical_cols
-    log["missing_before"] = (
-        df[cols_for_missing].isna().sum().astype(int).to_dict()
-        if cols_for_missing
-        else {}
-    )
-
-    # --- MICE (IterativeImputer) for numeric columns ---
-    if numeric_cols:
-        try:
-            imp = IterativeImputer(
-                random_state=random_state,
-                sample_posterior=False,
-                max_iter=20,
-                initial_strategy="median",
-            )
-            numeric_array = imp.fit_transform(df[numeric_cols])
-            df[numeric_cols] = numeric_array
-            log["mice_n_iter"] = int(getattr(imp, "n_iter_", 0))
-            log["mice_success"] = True
-        except Exception as e:
-            # Fallback: median imputation if MICE fails
-            log["mice_success"] = False
-            log["mice_error"] = str(e)
-            for col in numeric_cols:
-                median_val = df[col].median(skipna=True)
-                df[col] = df[col].fillna(median_val)
-    else:
-        log["mice_n_iter"] = 0
-        log["mice_success"] = True
-
-    # --- Mode imputation for categorical/binary columns ---
-    for col in categorical_cols:
-        s = df[col]
-        mode_val = s.dropna().mode()
-        if not mode_val.empty:
-            df[col] = s.fillna(mode_val.iloc[0])
-        else:
-            # Fallback: consistent "Unknown" category
-            df[col] = s.fillna("Unknown")
-
-    # Missing counts AFTER imputation
-    log["missing_after"] = (
-        df[cols_for_missing].isna().sum().astype(int).to_dict()
-        if cols_for_missing
-        else {}
-    )
-
-    # --- Overall success flag ---
-    total_missing_after = sum(log["missing_after"].values()) if log["missing_after"] else 0
-    log["success"] = (total_missing_after == 0) and bool(log.get("mice_success", True))
-
-    return df, log
-
-
-def merge_reports(eda_audit_report: Dict[str, Any], data_quality_violations: Dict[str, Any]) -> Dict[str, Any]:
-    """Merge EDA audit and DQ violations into one JSON-able dict."""
-    return {
-        "eda_audit": eda_audit_report,
-        "data_quality": data_quality_violations,
-        "generated_from": "kedro pipeline: data_cleaning + eda_audit merge",
-    }
-
-
-def plot_distributions(df: pd.DataFrame) -> Dict[str, Any]:
-    """Return a dict of matplotlib Figures for NIHSS_7d (hist), mRS90 (bar), TICI (bar)."""
-    figs: Dict[str, Any] = {}
-
-    # NIHSS 7d histogram
-    if "nihss_7d" in df.columns:
-        s = df["nihss_7d"].dropna()
-        fig1 = plt.figure()
-        s.plot(kind="hist", bins=30)
-        plt.title("NIHSS at 7 days")
-        plt.xlabel("NIHSS 7d")
-        plt.ylabel("Count")
-        figs["nihss_7d_hist"] = fig1
-
-    # mRS90 bar
-    if "mrs90" in df.columns:
-        s = df["mrs90"].dropna()
-        # cast to Int for nicer bars if possible
-        try:
-            s = s.astype("Int64").astype("float").astype(int)
-        except Exception:
-            pass
-        vc = s.value_counts().sort_index()
-        fig2 = plt.figure()
-        vc.plot(kind="bar")
-        plt.title("mRS at 90 days")
-        plt.xlabel("mRS90")
-        plt.ylabel("Count")
-        figs["mrs90_bar"] = fig2
-
-    # TICI bar
-    if "tici" in df.columns:
-        s = df["tici"].astype("string").dropna()
-        vc = s.value_counts().sort_index()
-        fig3 = plt.figure()
-        vc.plot(kind="bar")
-        plt.title("TICI grades")
-        plt.xlabel("TICI")
-        plt.ylabel("Count")
-        figs["tici_bar"] = fig3
-
-    return figs
-
-def exclude_invalid_cases(df: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, int]]:
-    """
-    Exclude records with physiologically or logically impossible values:
-      - onset_to_ivt_min > onset_to_puncture_min
-      - onset_to_puncture_min > onset_to_recan_min
-      - ASPECTS > 10
-      - any NIHSS_* > 42
-    Returns: filtered_df, exclusion_summary
-    """
-    initial_count = len(df)
-    removed = {}
-
-    # --- Logical time-order violations ---
-    if set(["onset_to_ivt_min", "onset_to_puncture_min"]).issubset(df.columns):
-        mask_ivt_gt_puncture = (
-            df["onset_to_ivt_min"].notna()
-            & df["onset_to_puncture_min"].notna()
-            & (df["onset_to_ivt_min"] > df["onset_to_puncture_min"])
-        )
-        removed["ivt_gt_puncture"] = int(mask_ivt_gt_puncture.sum())
-        df = df.loc[~mask_ivt_gt_puncture]
-
-    if set(["onset_to_puncture_min", "onset_to_recan_min"]).issubset(df.columns):
-        mask_puncture_gt_recan = (
-            df["onset_to_puncture_min"].notna()
-            & df["onset_to_recan_min"].notna()
-            & (df["onset_to_puncture_min"] > df["onset_to_recan_min"])
-        )
-        removed["puncture_gt_recan"] = int(mask_puncture_gt_recan.sum())
-        df = df.loc[~mask_puncture_gt_recan]
-
-    # --- Clinical plausibility ---
-    if "aspects" in df.columns:
-        mask_aspects = df["aspects"].notna() & (df["aspects"] > 10)
-        removed["aspects_gt10"] = int(mask_aspects.sum())
-        df = df.loc[~mask_aspects]
-
-    for col in ["nihss_admission", "nihss_24h", "nihss_7d"]:
-        if col in df.columns:
-            mask_nihss = df[col].notna() & (df[col] > 42)
-            removed[f"{col}_gt42"] = int(mask_nihss.sum())
-            df = df.loc[~mask_nihss]
-
-    final_count = len(df)
-    removed["total_removed"] = initial_count - final_count
-    removed["final_rows"] = final_count
-    return df, removed
-

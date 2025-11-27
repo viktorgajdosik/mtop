@@ -1,6 +1,6 @@
 {
-  "a": -0.03959186975620549,
-  "b": 0.9684718812349178,
+  "a": -0.28218421934286175,
+  "b": 0.9847554536623854,
   "n_train": 1131,
   "n_splits_cv": 5,
   "note": "Platt / logistic calibration fitted on TRAIN using 5-fold cross-validation (out-of-fold predictions). Use: p_cal = logistic(a + b * logit(p_raw)), where p_raw is the LightGBM predicted probability for mRS 0 to 2."

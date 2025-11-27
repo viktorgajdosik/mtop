@@ -269,6 +269,14 @@ mrs90_cv_summary_table:
   type: pandas.CSVDataset
   filepath: data/08_reporting/modeling_mrs90/cv/mrs90_cv_summary_table.csv
 
+mrs_lgbm_cv_auc_distribution_raw:
+  type: kedro_datasets.matplotlib.MatplotlibWriter
+  filepath: data/08_reporting/modeling_mrs90/cv/mrs90_lgbm_cv_auc_distribution_raw.png
+  save_args:
+    dpi: 200
+    bbox_inches: tight
+    format: png
+
 # Metrics produced by calibration_mrs90_analysis.py
 mrs90_calibration_metrics_raw:
   type: kedro_datasets.json.JSONDataset

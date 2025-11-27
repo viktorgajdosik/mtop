@@ -14,7 +14,7 @@ from sklearn.metrics import (
     log_loss,
 )
 from sklearn.metrics import brier_score_loss
-from sklearn.model_selection import StratifiedKFold
+from sklearn.model_selection import StratifiedKFold, RepeatedStratifiedKFold
 import optuna
 from optuna.samplers import TPESampler
 
@@ -133,6 +133,11 @@ def build_mrs90_dataset(
         "decompression_surgery_missing",
         "anesthesia",
         "anesthesia_missing",
+        "sich_missing",
+        "non_sich_missing",
+        "procedure_missing",
+        "tici_missing",
+        "stent_combo_missing",
     ]
 
     drop_cols = [c for c in drop_cols if c in df.columns]
@@ -284,34 +289,38 @@ def optuna_tune_mrs90_lgbm(
     X_train: pd.DataFrame,
     y_train: pd.DataFrame,  # 1-col DF
     n_trials: int = 50,
-    n_splits: int = 5,
+    n_splits: int = 5,      # used for tuning only
     random_state: int = 42,
-) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+) -> Tuple[Dict[str, Any], Dict[str, Any], pd.DataFrame, plt.Figure]:
     """
     Run Optuna hyperparameter tuning for the mRS90 LightGBM model.
 
-    - Uses TRAIN only, with StratifiedKFold CV.
-    - Single scalar objective combining:
+    - Uses TRAIN only, with StratifiedKFold CV for *tuning*.
+    - Objective combines:
         * mean AUC (to maximize)
         * mean Brier score (to minimize)
       via: objective = mean_auc - LAMBDA_BRIER * mean_brier
 
-      LAMBDA_BRIER controls how much we penalize poor calibration.
-      (Chosen as 0.25 here: a 0.01 increase in Brier costs 0.0025 AUC.)
-
-    - Also tunes class_weight and interaction usage:
+    - Also tunes:
         use_age_x_nihss
         use_onset_to_puncture_min_x_nihss
         use_age_x_onset_to_puncture_min
 
-    - Returns:
-        best_params: dict of best hyperparameters (incl. interaction flags)
-        cv_metrics: dict for reporting / Streamlit app.
+    - After tuning, performs a *separate* 10×20 repeated stratified CV with the
+      best hyperparameters to get a robust distribution of AUC, Brier and log-loss.
+
+    Returns:
+        best_params   : dict (Optuna best params incl. interaction flags)
+        cv_metrics    : dict (JSON-able, includes per-fold metrics)
+        cv_summary_df : 1-row DataFrame for CSV summary (mrs90_vs_summary_table)
+        fig_auc_dist  : Matplotlib Figure with AUC distribution histogram
+                        (mrs_lgbm_cv_auc_distribution_raw)
     """
     y = y_train.iloc[:, 0].values
     all_features: List[str] = list(X_train.columns)
 
-    skf = StratifiedKFold(
+    # ---------- 1) CV for OPTUNA TUNING ----------
+    skf_tune = StratifiedKFold(
         n_splits=n_splits,
         shuffle=True,
         random_state=random_state,
@@ -359,7 +368,6 @@ def optuna_tune_mrs90_lgbm(
             "colsample_bytree": trial.suggest_float("colsample_bytree", 0.4, 1.0),
             "reg_alpha": trial.suggest_float("reg_alpha", 0.0, 10.0),
             "reg_lambda": trial.suggest_float("reg_lambda", 0.0, 10.0),
-            # Allow Optuna to pick class_weight (None vs balanced)
             "class_weight": trial.suggest_categorical(
                 "class_weight", [None, "balanced"]
             ),
@@ -368,7 +376,7 @@ def optuna_tune_mrs90_lgbm(
         aucs: List[float] = []
         briers: List[float] = []
 
-        for train_idx, val_idx in skf.split(X_train, y):
+        for train_idx, val_idx in skf_tune.split(X_train, y):
             X_tr = X_train.iloc[train_idx][active_features]
             X_val = X_train.iloc[val_idx][active_features]
             y_tr, y_val = y[train_idx], y[val_idx]
@@ -392,12 +400,11 @@ def optuna_tune_mrs90_lgbm(
         mean_auc = float(np.mean(aucs))
         mean_brier = float(np.mean(briers))
 
-        # Multi-objective scalar:
-        #   maximize AUC, minimize Brier
+        # Multi-objective scalar
         objective_value = mean_auc - LAMBDA_BRIER * mean_brier
         return objective_value
 
-    # Run Optuna with a seeded sampler for reproducibility
+    # ---------- 2) Run Optuna TUNING ----------
     study = optuna.create_study(
         direction="maximize",
         sampler=TPESampler(seed=random_state),
@@ -407,10 +414,11 @@ def optuna_tune_mrs90_lgbm(
     best_trial = study.best_trial
     best_params = best_trial.params  # includes interaction flags + LGBM params
 
-    # --------------------------------------------------
-    # Recompute CV metrics with best_params (for reporting)
-    # --------------------------------------------------
-    # Extract interaction flags from best_params (without mutating the original)
+    # ============================================================
+    # 3) 10×20 REPEATED CV WITH BEST HYPERPARAMETERS (REPORTING)
+    # ============================================================
+
+    # Extract interaction flags from best_params (without mutating original)
     bp = dict(best_params)
     use_age_x_nihss = bp.pop("use_age_x_nihss", True)
     use_onset_x_nihss = bp.pop("use_onset_to_puncture_min_x_nihss", True)
@@ -426,11 +434,21 @@ def optuna_tune_mrs90_lgbm(
 
     monotone_constraints = _get_monotone_constraints(active_features)
 
+    # Repeated 10×20 CV
+    N_SPLITS_EVAL = 10
+    N_REPEATS_EVAL = 20
+
+    rskf = RepeatedStratifiedKFold(
+        n_splits=N_SPLITS_EVAL,
+        n_repeats=N_REPEATS_EVAL,
+        random_state=random_state,
+    )
+
     aucs: List[float] = []
     briers: List[float] = []
     loglosses: List[float] = []
 
-    for train_idx, val_idx in skf.split(X_train, y):
+    for fold_idx, (train_idx, val_idx) in enumerate(rskf.split(X_train, y), start=1):
         X_tr = X_train.iloc[train_idx][active_features]
         X_val = X_train.iloc[val_idx][active_features]
         y_tr, y_val = y[train_idx], y[val_idx]
@@ -458,7 +476,7 @@ def optuna_tune_mrs90_lgbm(
             "std": float(np.std(v, ddof=1)) if len(v) > 1 else 0.0,
         }
 
-    # Small helper list of top trials (by objective) for reporting / debugging
+    # Top trials info (unchanged)
     top_trials_info = []
     sorted_trials = sorted(
         study.trials,
@@ -475,23 +493,61 @@ def optuna_tune_mrs90_lgbm(
         )
 
     cv_metrics: Dict[str, Any] = {
-        "n_splits": n_splits,
-        "n_repeats": 1,
+        "n_splits": N_SPLITS_EVAL,
+        "n_repeats": N_REPEATS_EVAL,
         "summary": {
             "auc": _summ(aucs),
             "brier": _summ(briers),
             "log_loss": _summ(loglosses),
         },
+        "per_fold": {
+            "auc": aucs,
+            "brier": briers,
+            "log_loss": loglosses,
+        },
         "optuna": {
             "n_trials": n_trials,
             "best_value": float(best_trial.value),
             "best_trial_number": int(best_trial.number),
-            "best_params": best_params,      # includes interaction flags
+            "best_params": best_params,  # includes interaction flags
             "top_trials": top_trials_info,
         },
     }
 
-    return best_params, cv_metrics
+    # ============================================================
+    # 4) Build 1-row summary table (for CSV)
+    # ============================================================
+    cv_summary_df = pd.DataFrame(
+        [
+            {
+                "model": "LGBM_mrs90",
+                "strategy": "10x20_repeated_stratified_CV",
+                "n_splits": N_SPLITS_EVAL,
+                "n_repeats": N_REPEATS_EVAL,
+                "n_fits": N_SPLITS_EVAL * N_REPEATS_EVAL,
+                "auc_mean": cv_metrics["summary"]["auc"]["mean"],
+                "auc_sd": cv_metrics["summary"]["auc"]["std"],
+                "brier_mean": cv_metrics["summary"]["brier"]["mean"],
+                "brier_sd": cv_metrics["summary"]["brier"]["std"],
+                "log_loss_mean": cv_metrics["summary"]["log_loss"]["mean"],
+                "log_loss_sd": cv_metrics["summary"]["log_loss"]["std"],
+            }
+        ]
+    )
+
+    # ============================================================
+    # 5) AUC distribution figure (for PNG)
+    # ============================================================
+    fig_auc_dist, ax = plt.subplots(figsize=(6, 4))
+    ax.hist(aucs, bins=20, alpha=0.75)
+    ax.axvline(np.mean(aucs), linestyle="--")
+    ax.set_xlabel("ROC AUC (per CV fold)")
+    ax.set_ylabel("Count")
+    ax.set_title("10×20 CV ROC AUC distribution (training cohort)")
+    ax.grid(alpha=0.3)
+
+    return best_params, cv_metrics, cv_summary_df, fig_auc_dist
+
 
 
 # ============================================================
@@ -769,19 +825,7 @@ def plot_mrs90_shap_age_groups(
     age_col: str = "age",
     top_n: int = 15,
 ) -> Tuple[plt.Figure, plt.Figure, plt.Figure, plt.Figure]:
-    """
-    Create age-stratified SHAP feature-importance figures on TEST set.
 
-    For each threshold T we plot:
-      - left panel: SHAP mean(|value|) for age < T (ranked within this group)
-      - right panel: SHAP mean(|value|) for age ≥ T (ranked within this group)
-
-    Each PNG shows the top_n features for each group separately.
-    Returns 4 figures (for thresholds 50, 75, 80, 85), to be written by Kedro.
-
-    NOTE:
-      - If feature_list is longer than shap_values_test.shape[1], we truncate.
-    """
     if age_col not in X_test.columns:
         raise ValueError(
             f"X_test must contain '{age_col}' for age-stratified plots."
@@ -923,16 +967,7 @@ def plot_mrs90_shap(
     X_test: pd.DataFrame,
     feature_list: List[str],
 ) -> Tuple[plt.Figure, plt.Figure, plt.Figure]:
-    """
-    Global SHAP plots (test set):
-      1) Barplot of mean |SHAP|
-      2) Beeswarm plot
-      3) Dependence plot for the top feature
-
-    NOTE:
-      - If feature_list is longer than shap_values_test.shape[1], we truncate.
-      - X_test is aligned to the used feature names before plotting.
-    """
+  
     n_samples, n_features = shap_values_test.shape
 
     if n_samples != X_test.shape[0]:
@@ -951,18 +986,26 @@ def plot_mrs90_shap(
     # Align X_test to the feature names used in SHAP
     X_for_shap = X_test[feature_names]
 
-    # 1) Barplot
+    # ------------------------------------------------
+    # 1) BARPLOT — LIMITED TO TOP-30 FEATURES
+    # ------------------------------------------------
     mean_abs = np.mean(np.abs(shap_values_test), axis=0)
     order = np.argsort(-mean_abs)
 
-    ordered_features = np.array(feature_names)[order]
+    TOP_N = 30
+    top_order = order[:TOP_N]
+    top_features = np.array(feature_names)[top_order]
+    top_values = mean_abs[top_order]
 
-    fig_bar, ax = plt.subplots(figsize=(8, 6))
-    ax.barh(ordered_features, mean_abs[order])
-    ax.set_title("SHAP Feature Importance (Test Set)")
+    fig_bar, ax = plt.subplots(figsize=(8, 0.35 * TOP_N + 2))
+    ax.barh(top_features, top_values)
+    ax.set_title(f"Top {TOP_N} SHAP Feature Importances (Test Set)")
     ax.invert_yaxis()
+    ax.grid(axis="x", alpha=0.3)
 
-    # 2) Beeswarm
+    # ------------------------------------------------
+    # 2) Beeswarm (unchanged)
+    # ------------------------------------------------
     fig_bee = plt.figure(figsize=(10, 6))
     shap.summary_plot(
         shap_values_test,
@@ -971,7 +1014,9 @@ def plot_mrs90_shap(
         show=False,
     )
 
+    # ------------------------------------------------
     # 3) Dependence plot (top feature)
+    # ------------------------------------------------
     top_feature = feature_names[order[0]]
 
     fig_dep = plt.figure(figsize=(6, 5))
@@ -987,17 +1032,12 @@ def plot_mrs90_shap(
     return fig_bar, fig_bee, fig_dep
 
 
+
 def mrs90_feature_importance(
     model: LGBMClassifier,
     feature_list: List[str],
 ) -> pd.DataFrame:
-    """
-    Extract global feature importance from the fitted LightGBM model.
-
-    NOTE:
-      - We trust the model's own feature_name_ as the canonical source.
-        The `feature_list` argument is kept only for backward compatibility.
-    """
+    
     importances = model.feature_importances_
 
     if hasattr(model, "feature_name_") and model.feature_name_ is not None:

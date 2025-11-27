@@ -35,6 +35,9 @@ def create_pipeline(**kwargs) -> Pipeline:
                 outputs=[
                     "mrs90_lgbm_optuna_best_params",
                     "mrs90_lgbm_cv_metrics_raw_10x20",
+                    "mrs90_cv_summary_table",
+                    "mrs90_lgbm_cv_auc_distribution_raw",
+                    
                 ],
                 name="optuna_tune_mrs90_lgbm_node",
             ),

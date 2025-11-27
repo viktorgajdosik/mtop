@@ -4,7 +4,6 @@ from .nodes import (
     exclude_invalid_cases,
     validate_and_fix,
     make_lightgbm_ready,
-    make_regression_ready,
 )
 
 def create_pipeline(**kwargs) -> Pipeline:
@@ -39,12 +38,6 @@ def create_pipeline(**kwargs) -> Pipeline:
                 name="make_lightgbm_ready_node",
             ),
             
-            node(
-                func=make_regression_ready,
-                inputs="mt_lightgbm_ready",
-                outputs=["mt_patients_regression_ready", "regression_imputation_log"],
-                name="make_regression_ready_node",
-            ),
 
         ]
     )
